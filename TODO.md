@@ -26,3 +26,22 @@
 - `sample_rate` is validated as finite and in the inclusive range `0.0..1.0`.
 - Sampling decision for telemetry spans is deterministic from `trace_id`.
 - `write_event_from_workflow_result(...)` extracts `metadata.telemetry` and `metadata.trace.tenant` when available.
+
+## Parent Task: SDK trust/lifecycle parity updates (Go + Python)
+
+- Status: completed
+- Why: align runtime trust configuration and lifecycle endpoint helpers across SDKs for consistent remote runtime integration behavior.
+- Expected outcome: Go and Python SDKs both support shared-key/asymmetric verification expectations and lifecycle helper methods with test coverage.
+
+### Subtasks
+
+1. Status: completed
+   - Add Go invoke token verifier shared-key HS256 mode while preserving existing JWKS/asymmetric verification.
+2. Status: completed
+   - Add Go + Python runtime registration lifecycle helpers for activate/deactivate/validate endpoints.
+3. Status: completed
+   - Clarify Python verifier usage for HS256 and RS256 and add coverage for shared-key flows.
+4. Status: completed
+   - Update SDK docs/READMEs for new trust and lifecycle APIs.
+5. Status: completed
+   - Run Go and Python test suites.

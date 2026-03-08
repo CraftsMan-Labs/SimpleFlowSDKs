@@ -4,8 +4,8 @@ This SDK helps Python remote runtime backends integrate with the SimpleFlow cont
 
 ## Features
 
-- API client for runtime registration, invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
-- Invoke token verification helper for control-plane issued tokens.
+- API client for runtime registration, lifecycle helpers (activate/deactivate/validate), invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
+- Invoke token verification helper for control-plane issued tokens (HS256 shared key and RS256 public key/JWKS usage).
 - Typed dataclasses for common runtime payloads and telemetry span envelopes.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 
@@ -36,4 +36,25 @@ telemetry.emit_span(
     run_id="run_123",
     agent_id="agent-1",
 )
+```
+
+## Auth verifier usage
+
+```python
+from simpleflow_sdk import InvokeTokenVerifier
+
+hs_verifier = InvokeTokenVerifier.for_hs256_shared_key(
+    issuer="https://api.simpleflow.example",
+    audience="runtime",
+    shared_key="local-dev-secret",
+)
+
+rs_verifier = InvokeTokenVerifier.for_rs256_public_key(
+    issuer="https://api.simpleflow.example",
+    audience="runtime",
+    public_key=public_key_pem,
+)
+
+# You can also pass a key per call when needed.
+claims = hs_verifier.verify(token)
 ```

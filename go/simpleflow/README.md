@@ -6,9 +6,10 @@ This SDK helps remote runtime backends integrate with the SimpleFlow control pla
 
 - Typed invoke request/result and error envelope contracts.
 - Control-plane API client for runtime registration and invoke.
+- Runtime lifecycle helpers for activate/deactivate/validate registration endpoints.
 - Runtime API client for event, chat message, and queue contract writes.
 - Chat history APIs for list/create/update by `agent_id` + `chat_id` + `user_id`.
-- Invoke token verifier using JWKS-based signature validation.
+- Invoke token verifier supporting JWKS (asymmetric) and HS256 shared-key validation.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 
 ## Install
@@ -47,5 +48,23 @@ err = telemetry.EmitSpan(ctx, simpleflow.EmitSpanInput{
         StartTimeMS: 1000,
         EndTimeMS:   1200,
     },
+})
+```
+
+## Auth verifier modes
+
+```go
+// JWKS + asymmetric signatures (RS/ES)
+jwksVerifier, err := simpleflow.NewInvokeTokenVerifier(simpleflow.InvokeTokenVerifierConfig{
+    JWKSURL:  "https://api.simpleflow.example/.well-known/jwks.json",
+    Issuer:   "https://api.simpleflow.example",
+    Audience: "runtime",
+})
+
+// Local/shared-key HS256 mode
+hsVerifier, err := simpleflow.NewInvokeTokenVerifierWithSharedKey(simpleflow.InvokeSharedKeyVerifierConfig{
+    SharedKey: "local-dev-secret",
+    Issuer:    "https://api.simpleflow.example",
+    Audience:  "runtime",
 })
 ```
