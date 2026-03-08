@@ -13,13 +13,19 @@ type WorkflowTraceTenant struct {
 	RequestID      string `json:"request_id,omitempty"`
 	RunID          string `json:"run_id,omitempty"`
 	AgentID        string `json:"agent_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
 }
 
 type RuntimeRegistration struct {
-	RuntimeID      string            `json:"runtime_id"`
-	RuntimeVersion string            `json:"runtime_version,omitempty"`
+	AgentID        string            `json:"agent_id,omitempty"`
+	AgentVersion   string            `json:"agent_version,omitempty"`
+	ExecutionMode  string            `json:"execution_mode,omitempty"`
+	EndpointURL    string            `json:"endpoint_url,omitempty"`
+	AuthMode       string            `json:"auth_mode,omitempty"`
 	Capabilities   []string          `json:"capabilities,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
+	RuntimeID      string            `json:"runtime_id,omitempty"`
+	RuntimeVersion string            `json:"runtime_version,omitempty"`
 }
 
 type InvokeRequest struct {
@@ -58,7 +64,8 @@ type InvokeResult struct {
 }
 
 type RuntimeEvent struct {
-	Type           string         `json:"type"`
+	EventType      string         `json:"event_type,omitempty"`
+	Type           string         `json:"type,omitempty"`
 	AgentID        string         `json:"agent_id"`
 	AgentVersion   string         `json:"agent_version"`
 	RunID          string         `json:"run_id"`
@@ -69,6 +76,7 @@ type RuntimeEvent struct {
 	OrganizationID string         `json:"organization_id"`
 	UserID         string         `json:"user_id"`
 	TimestampMS    int64          `json:"timestamp_ms"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
 	Payload        map[string]any `json:"payload"`
 }
 
@@ -86,17 +94,47 @@ type ChatMessageWrite struct {
 	AgentID        string         `json:"agent_id"`
 	OrganizationID string         `json:"organization_id"`
 	RunID          string         `json:"run_id"`
+	ChatID         string         `json:"chat_id,omitempty"`
+	MessageID      string         `json:"message_id,omitempty"`
 	Role           string         `json:"role"`
-	Content        string         `json:"content"`
+	Direction      string         `json:"direction,omitempty"`
+	Content        any            `json:"content"`
 	Metadata       map[string]any `json:"metadata"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
 	CreatedAtMS    int64          `json:"created_at_ms"`
 }
 
 type QueueContract struct {
+	AgentID         string         `json:"agent_id,omitempty"`
+	OrganizationID  string         `json:"organization_id,omitempty"`
+	RunID           string         `json:"run_id,omitempty"`
 	QueueName       string         `json:"queue_name"`
-	MessageID       string         `json:"message_id"`
+	ContractName    string         `json:"contract_name,omitempty"`
+	ContractVersion string         `json:"contract_version,omitempty"`
+	Schema          map[string]any `json:"schema,omitempty"`
+	Transport       map[string]any `json:"transport,omitempty"`
+	Status          string         `json:"status,omitempty"`
+	MessageID       string         `json:"message_id,omitempty"`
 	IdempotencyKey  string         `json:"idempotency_key"`
 	RetryAttempt    int            `json:"retry_attempt"`
 	MaxRetryAttempt int            `json:"max_retry_attempt"`
 	Payload         map[string]any `json:"payload"`
+}
+
+type ChatHistoryMessage struct {
+	ID        string         `json:"id,omitempty"`
+	AgentID   string         `json:"agent_id"`
+	ChatID    string         `json:"chat_id"`
+	MessageID string         `json:"message_id"`
+	UserID    string         `json:"user_id"`
+	Role      string         `json:"role,omitempty"`
+	Content   map[string]any `json:"content,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+type ChatHistoryListInput struct {
+	AgentID string
+	ChatID  string
+	UserID  string
+	Limit   int
 }

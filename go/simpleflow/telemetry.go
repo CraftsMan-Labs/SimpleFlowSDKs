@@ -45,6 +45,7 @@ func (c *Client) WithTelemetry(cfg TelemetryConfig) (*TelemetryEmitter, error) {
 
 type EmitSpanInput struct {
 	AgentID        string
+	OrganizationID string
 	RunID          string
 	TraceID        string
 	RequestID      string
@@ -86,10 +87,15 @@ func (e *TelemetryEmitter) EmitSpan(ctx context.Context, input EmitSpanInput) er
 	if requestID == "" {
 		requestID = strings.TrimSpace(e.cfg.DefaultTrace.RequestID)
 	}
+	organizationID := strings.TrimSpace(input.OrganizationID)
+	if organizationID == "" {
+		organizationID = strings.TrimSpace(e.cfg.DefaultTrace.OrganizationID)
+	}
 
 	event := RuntimeEvent{
-		Type:           "runtime.telemetry.span",
+		EventType:      "runtime.telemetry.span",
 		AgentID:        agentID,
+		OrganizationID: organizationID,
 		RunID:          runID,
 		ConversationID: conversationID,
 		RequestID:      requestID,
