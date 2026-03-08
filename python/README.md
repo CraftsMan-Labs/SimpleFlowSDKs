@@ -4,14 +4,15 @@ This SDK helps Python remote runtime backends integrate with the SimpleFlow cont
 
 ## Features
 
-- API client for runtime events, chat message writes, and queue contract publication.
+- API client for runtime registration, invoke, runtime events, chat message writes, and queue contract publication.
 - Invoke token verification helper for control-plane issued tokens.
-- Typed dataclasses for common runtime payloads.
+- Typed dataclasses for common runtime payloads and telemetry span envelopes.
+- Telemetry bridge with `simpleflow` and `otlp` modes.
 
 ## Install
 
 ```bash
-pip install -e ./sdk/python
+pip install -e ./python
 ```
 
 ## Minimal usage
@@ -20,12 +21,19 @@ pip install -e ./sdk/python
 from simpleflow_sdk import RuntimeEvent, SimpleFlowClient
 
 client = SimpleFlowClient(base_url="https://api.simpleflow.example", api_token="runtime-token")
-client.report_runtime_event(
+client.write_event(
     RuntimeEvent(
         type="runtime.invoke.accepted",
         agent_id="agent-1",
-        agent_version="v1",
-        run_id="run_123",
+        run_id="run_123"
     )
+)
+
+telemetry = client.with_telemetry(mode="simpleflow", sample_rate=0.2)
+telemetry.emit_span(
+    span={"name": "llm.call", "start_time_ms": 1000, "end_time_ms": 1250},
+    trace_id="trace_123",
+    run_id="run_123",
+    agent_id="agent-1",
 )
 ```

@@ -10,15 +10,46 @@ class InvokeTrace:
 
 
 @dataclass(slots=True)
+class WorkflowTraceTenant:
+    conversation_id: str | None = None
+    request_id: str | None = None
+    run_id: str | None = None
+    agent_id: str | None = None
+
+
+@dataclass(slots=True)
+class RuntimeRegistration:
+    runtime_id: str
+    runtime_version: str | None = None
+    capabilities: list[str] | None = None
+    metadata: dict[str, str] | None = None
+
+
+@dataclass(slots=True)
 class RuntimeEvent:
     type: str
     agent_id: str
-    agent_version: str
-    run_id: str
+    agent_version: str | None = None
+    run_id: str | None = None
+    conversation_id: str | None = None
+    request_id: str | None = None
+    trace_id: str | None = None
+    sampled: bool | None = None
     organization_id: str | None = None
     user_id: str | None = None
     timestamp_ms: int | None = None
     payload: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class TelemetrySpan:
+    name: str
+    start_time_ms: int
+    end_time_ms: int
+    kind: str | None = None
+    attributes: dict[str, Any] | None = None
+    status: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(slots=True)
