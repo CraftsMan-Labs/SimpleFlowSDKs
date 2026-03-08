@@ -47,11 +47,12 @@ class SimpleFlowClient:
         self,
         base_url: str,
         api_token: str | None = None,
-        runtime_register_path: str = "/v1/runtimes/register",
+        runtime_register_path: str = "/v1/runtime/registrations",
         runtime_invoke_path: str = "/v1/runtime/invoke",
         runtime_events_path: str = "/v1/runtime/events",
         chat_messages_path: str = "/v1/runtime/chat/messages",
         queue_contracts_path: str = "/v1/runtime/queue/contracts",
+        chat_history_path: str = "/v1/chat/history/messages",
         timeout_seconds: float = 10.0,
     ) -> None:
         if base_url.strip() == "":
@@ -63,6 +64,7 @@ class SimpleFlowClient:
         self._runtime_events_path = runtime_events_path
         self._chat_messages_path = chat_messages_path
         self._queue_contracts_path = queue_contracts_path
+        self._chat_history_path = chat_history_path
         self._client = httpx.Client(timeout=timeout_seconds)
 
     def close(self) -> None:
@@ -76,16 +78,87 @@ class SimpleFlowClient:
         return response
 
     def write_event(self, event: Any) -> None:
-        self._post(self._runtime_events_path, event)
+        body = _normalize_payload(event)
+        event_type = str(body.get("event_type", "")).strip()
+        if event_type == "":
+            event_type = str(body.get("type", "")).strip()
+        body["event_type"] = event_type
+        body.pop("type", None)
+        idempotency_key = str(body.pop("idempotency_key", "")).strip()
+        headers: dict[str, str] = {}
+        if idempotency_key != "":
+            headers["Idempotency-Key"] = idempotency_key
+        self._post(self._runtime_events_path, body, extra_headers=headers)
 
     def report_runtime_event(self, event: Any) -> None:
         self.write_event(event)
 
     def write_chat_message(self, message: Any) -> None:
-        self._post(self._chat_messages_path, message)
+        body = _normalize_payload(message)
+        idempotency_key = str(body.pop("idempotency_key", "")).strip()
+        direction = str(body.get("direction", "")).strip()
+        if direction == "":
+            body["direction"] = "outbound"
+        if body.get("content") is None:
+            body["content"] = {}
+        if body.get("metadata") is None:
+            body["metadata"] = {}
+        headers: dict[str, str] = {}
+        if idempotency_key != "":
+            headers["Idempotency-Key"] = idempotency_key
+        self._post(self._chat_messages_path, body, extra_headers=headers)
 
     def publish_queue_contract(self, contract: Any) -> None:
-        self._post(self._queue_contracts_path, contract)
+        body = _normalize_payload(contract)
+        if str(body.get("contract_name", "")).strip() == "":
+            body["contract_name"] = (
+                str(body.get("message_id", "")).strip() or "runtime.queue.contract"
+            )
+        if str(body.get("contract_version", "")).strip() == "":
+            body["contract_version"] = "v1"
+        if str(body.get("status", "")).strip() == "":
+            body["status"] = "draft"
+        if body.get("schema") is None:
+            body["schema"] = body.get("payload") or {}
+        if body.get("transport") is None:
+            body["transport"] = {}
+        idempotency_key = str(body.pop("idempotency_key", "")).strip()
+        headers: dict[str, str] = {}
+        if idempotency_key != "":
+            headers["Idempotency-Key"] = idempotency_key
+        self._post(self._queue_contracts_path, body, extra_headers=headers)
+
+    def list_chat_history_messages(
+        self, *, agent_id: str, chat_id: str, user_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        path = f"{self._chat_history_path}?agent_id={agent_id}&chat_id={chat_id}&user_id={user_id}&limit={limit}"
+        response = self._get(path)
+        messages = response.get("messages")
+        if isinstance(messages, list):
+            return [item for item in messages if isinstance(item, dict)]
+        return []
+
+    def create_chat_history_message(self, message: Any) -> dict[str, Any]:
+        return self._post(self._chat_history_path, message)
+
+    def update_chat_history_message(
+        self,
+        *,
+        message_id: str,
+        agent_id: str,
+        chat_id: str,
+        user_id: str,
+        content: Any,
+        metadata: Any,
+    ) -> dict[str, Any]:
+        payload = {
+            "agent_id": agent_id,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "content": _normalize_payload(content),
+            "metadata": _normalize_payload(metadata),
+        }
+        return self._patch(f"{self._chat_history_path}/{message_id}", payload)
 
     def write_event_from_workflow_result(
         self,
@@ -119,7 +192,7 @@ class SimpleFlowClient:
 
         self.write_event(
             {
-                "type": event_type,
+                "event_type": event_type,
                 "agent_id": agent_id,
                 "run_id": run_id,
                 "conversation_id": conversation_id,
@@ -146,7 +219,12 @@ class SimpleFlowClient:
             default_trace=default_trace,
         )
 
-    def _post(self, path: str, payload: Any) -> dict[str, Any]:
+    def _post(
+        self,
+        path: str,
+        payload: Any,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{self._base_url}{normalized_path}"
         body = _normalize_payload(payload)
@@ -154,6 +232,8 @@ class SimpleFlowClient:
         headers = {"Content-Type": "application/json"}
         if self._api_token != "":
             headers["Authorization"] = f"Bearer {self._api_token}"
+        if extra_headers is not None:
+            headers.update(extra_headers)
 
         response = self._client.post(url, json=body, headers=headers)
         if response.status_code < 200 or response.status_code >= 300:
@@ -168,6 +248,47 @@ class SimpleFlowClient:
             raise RuntimeError(
                 "simpleflow sdk request error: expected JSON response body"
             ) from exc
+        if isinstance(decoded, dict):
+            return decoded
+        raise RuntimeError(
+            "simpleflow sdk request error: expected JSON object response body"
+        )
+
+    def _get(self, path: str) -> dict[str, Any]:
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        url = f"{self._base_url}{normalized_path}"
+        headers: dict[str, str] = {}
+        if self._api_token != "":
+            headers["Authorization"] = f"Bearer {self._api_token}"
+        response = self._client.get(url, headers=headers)
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(
+                f"simpleflow sdk request error: status={response.status_code} body={response.text.strip()}"
+            )
+        if response.text.strip() == "":
+            return {}
+        decoded = response.json()
+        if isinstance(decoded, dict):
+            return decoded
+        raise RuntimeError(
+            "simpleflow sdk request error: expected JSON object response body"
+        )
+
+    def _patch(self, path: str, payload: Any) -> dict[str, Any]:
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        url = f"{self._base_url}{normalized_path}"
+        body = _normalize_payload(payload)
+        headers = {"Content-Type": "application/json"}
+        if self._api_token != "":
+            headers["Authorization"] = f"Bearer {self._api_token}"
+        response = self._client.patch(url, json=body, headers=headers)
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(
+                f"simpleflow sdk request error: status={response.status_code} body={response.text.strip()}"
+            )
+        if response.text.strip() == "":
+            return {}
+        decoded = response.json()
         if isinstance(decoded, dict):
             return decoded
         raise RuntimeError(

@@ -1,6 +1,7 @@
 from .auth import InvokeTokenVerifier
 from .client import SimpleFlowClient, TelemetryBridge
 from .contracts import (
+    ChatHistoryMessage,
     ChatMessageWrite,
     QueueContract,
     RuntimeEvent,
@@ -14,6 +15,7 @@ __all__ = [
     "TelemetryBridge",
     "InvokeTokenVerifier",
     "RuntimeEvent",
+    "ChatHistoryMessage",
     "ChatMessageWrite",
     "QueueContract",
     "RuntimeRegistration",
