@@ -29,8 +29,8 @@ func TestEmitSpanWritesSimpleFlowEvent(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if payload["type"] != "runtime.telemetry.span" {
-			t.Fatalf("unexpected event type: %v", payload["type"])
+		if payload["event_type"] != "runtime.telemetry.span" {
+			t.Fatalf("unexpected event type: %v", payload["event_type"])
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -48,9 +48,10 @@ func TestEmitSpanWritesSimpleFlowEvent(t *testing.T) {
 	}
 
 	err = emitter.EmitSpan(context.Background(), EmitSpanInput{
-		AgentID: "agent_1",
-		RunID:   "run_1",
-		TraceID: "trace_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		TraceID:        "trace_1",
 		Span: TelemetrySpan{
 			Name:        "llm.call",
 			StartTimeMS: 100,
