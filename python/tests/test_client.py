@@ -15,6 +15,12 @@ class _NoopHTTPXClient:
     def post(self, url: str, json: dict, headers: dict) -> object:
         raise RuntimeError("httpx stub client should be replaced in tests")
 
+    def get(self, url: str, headers: dict) -> object:
+        raise RuntimeError("httpx stub client should be replaced in tests")
+
+    def patch(self, url: str, json: dict, headers: dict) -> object:
+        raise RuntimeError("httpx stub client should be replaced in tests")
+
     def close(self) -> None:
         return None
 
@@ -50,10 +56,20 @@ class _FakeResponse:
 class _FakeHTTPClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
+        self.calls_get: list[str] = []
+        self.calls_patch: list[tuple[str, dict]] = []
 
     def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
         self.calls.append((url, json))
         return _FakeResponse()
+
+    def get(self, url: str, headers: dict) -> _FakeResponse:
+        self.calls_get.append(url)
+        return _FakeResponse(payload={"messages": [{"message_id": "m1"}]})
+
+    def patch(self, url: str, json: dict, headers: dict) -> _FakeResponse:
+        self.calls_patch.append((url, json))
+        return _FakeResponse(payload={"message_id": "m1"})
 
     def close(self) -> None:
         return None
@@ -89,6 +105,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         )
 
         _, payload = fake_http.calls[-1]
+        self.assertEqual(payload["event_type"], "runtime.workflow.completed")
         self.assertEqual(payload["trace_id"], "trace_123")
         self.assertEqual(payload["conversation_id"], "chat_123")
         self.assertEqual(payload["request_id"], "req_123")
@@ -107,8 +124,18 @@ class SimpleFlowClientTests(unittest.TestCase):
         )
 
         _, payload = fake_http.calls[-1]
-        self.assertEqual(payload["type"], "runtime.telemetry.span")
+        self.assertEqual(payload["event_type"], "runtime.telemetry.span")
         self.assertEqual(payload["trace_id"], "trace_1")
+
+    def test_chat_history_list_method(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        messages = client.list_chat_history_messages(
+            agent_id="agent_1", chat_id="chat_1", user_id="user_1", limit=10
+        )
+        self.assertEqual(messages[0]["message_id"], "m1")
 
 
 class SamplingTests(unittest.TestCase):
