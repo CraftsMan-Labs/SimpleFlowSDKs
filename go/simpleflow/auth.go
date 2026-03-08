@@ -27,6 +27,8 @@ type InvokeTokenVerifier struct {
 	issuer   string
 	audience string
 	jwks     *keyfunc.JWKS
+	keyfunc  jwt.Keyfunc
+	methods  []string
 }
 
 func NewInvokeTokenVerifier(cfg InvokeTokenVerifierConfig) (*InvokeTokenVerifier, error) {
@@ -48,7 +50,44 @@ func NewInvokeTokenVerifier(cfg InvokeTokenVerifierConfig) (*InvokeTokenVerifier
 		return nil, fmt.Errorf("simpleflow sdk auth config error: load jwks: %w", err)
 	}
 
-	return &InvokeTokenVerifier{issuer: issuer, audience: audience, jwks: jwks}, nil
+	return &InvokeTokenVerifier{
+		issuer:   issuer,
+		audience: audience,
+		jwks:     jwks,
+		keyfunc:  jwks.Keyfunc,
+		methods:  []string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"},
+	}, nil
+}
+
+type InvokeSharedKeyVerifierConfig struct {
+	SharedKey string
+	Issuer    string
+	Audience  string
+}
+
+func NewInvokeTokenVerifierWithSharedKey(cfg InvokeSharedKeyVerifierConfig) (*InvokeTokenVerifier, error) {
+	sharedKey := strings.TrimSpace(cfg.SharedKey)
+	if sharedKey == "" {
+		return nil, fmt.Errorf("simpleflow sdk auth config error: shared key is required")
+	}
+	issuer := strings.TrimSpace(cfg.Issuer)
+	if issuer == "" {
+		return nil, fmt.Errorf("simpleflow sdk auth config error: issuer is required")
+	}
+	audience := strings.TrimSpace(cfg.Audience)
+	if audience == "" {
+		return nil, fmt.Errorf("simpleflow sdk auth config error: audience is required")
+	}
+
+	sharedKeyBytes := []byte(sharedKey)
+	return &InvokeTokenVerifier{
+		issuer:   issuer,
+		audience: audience,
+		methods:  []string{"HS256"},
+		keyfunc: func(*jwt.Token) (any, error) {
+			return sharedKeyBytes, nil
+		},
+	}, nil
 }
 
 func (v *InvokeTokenVerifier) Close() {
@@ -64,10 +103,17 @@ func (v *InvokeTokenVerifier) Verify(rawToken string) (InvokeTokenClaims, error)
 		return claims, fmt.Errorf("simpleflow sdk auth error: token is required")
 	}
 
-	parsed, err := jwt.ParseWithClaims(trimmed, &claims, v.jwks.Keyfunc,
+	if v.keyfunc == nil {
+		return InvokeTokenClaims{}, fmt.Errorf("simpleflow sdk auth error: verifier is not configured")
+	}
+	if len(v.methods) == 0 {
+		return InvokeTokenClaims{}, fmt.Errorf("simpleflow sdk auth error: verifier valid methods are not configured")
+	}
+
+	parsed, err := jwt.ParseWithClaims(trimmed, &claims, v.keyfunc,
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
-		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}),
+		jwt.WithValidMethods(v.methods),
 	)
 	if err != nil {
 		return InvokeTokenClaims{}, fmt.Errorf("simpleflow sdk auth error: verify token: %w", err)
