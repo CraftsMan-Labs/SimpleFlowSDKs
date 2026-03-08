@@ -50,6 +50,9 @@ class SimpleFlowClient:
         runtime_register_path: str = "/v1/runtime/registrations",
         runtime_invoke_path: str = "/v1/runtime/invoke",
         runtime_events_path: str = "/v1/runtime/events",
+        runtime_activate_path: str = "/v1/runtime/registrations/{registration_id}/activate",
+        runtime_deactivate_path: str = "/v1/runtime/registrations/{registration_id}/deactivate",
+        runtime_validate_path: str = "/v1/runtime/registrations/{registration_id}/validate",
         chat_messages_path: str = "/v1/runtime/chat/messages",
         queue_contracts_path: str = "/v1/runtime/queue/contracts",
         chat_history_path: str = "/v1/chat/history/messages",
@@ -62,6 +65,9 @@ class SimpleFlowClient:
         self._runtime_register_path = runtime_register_path
         self._runtime_invoke_path = runtime_invoke_path
         self._runtime_events_path = runtime_events_path
+        self._runtime_activate_path = runtime_activate_path
+        self._runtime_deactivate_path = runtime_deactivate_path
+        self._runtime_validate_path = runtime_validate_path
         self._chat_messages_path = chat_messages_path
         self._queue_contracts_path = queue_contracts_path
         self._chat_history_path = chat_history_path
@@ -70,8 +76,32 @@ class SimpleFlowClient:
     def close(self) -> None:
         self._client.close()
 
-    def register_runtime(self, registration: Any) -> None:
-        self._post(self._runtime_register_path, registration)
+    def register_runtime(self, registration: Any) -> dict[str, Any]:
+        return self._post(self._runtime_register_path, registration)
+
+    def activate_runtime_registration(self, registration_id: str) -> None:
+        self._post(
+            self._runtime_registration_action_path(
+                self._runtime_activate_path, registration_id
+            ),
+            {},
+        )
+
+    def deactivate_runtime_registration(self, registration_id: str) -> None:
+        self._post(
+            self._runtime_registration_action_path(
+                self._runtime_deactivate_path, registration_id
+            ),
+            {},
+        )
+
+    def validate_runtime_registration(self, registration_id: str) -> dict[str, Any]:
+        return self._post(
+            self._runtime_registration_action_path(
+                self._runtime_validate_path, registration_id
+            ),
+            {},
+        )
 
     def invoke(self, request: Any) -> dict[str, Any]:
         response = self._post(self._runtime_invoke_path, request)
@@ -294,6 +324,20 @@ class SimpleFlowClient:
         raise RuntimeError(
             "simpleflow sdk request error: expected JSON object response body"
         )
+
+    def _runtime_registration_action_path(
+        self, path_template: str, registration_id: str
+    ) -> str:
+        trimmed_id = registration_id.strip()
+        if trimmed_id == "":
+            raise ValueError(
+                "simpleflow sdk payload error: registration_id is required"
+            )
+        if "{registration_id}" in path_template:
+            return path_template.replace("{registration_id}", trimmed_id)
+        if path_template.endswith("/"):
+            return f"{path_template}{trimmed_id}"
+        return f"{path_template}/{trimmed_id}"
 
 
 class TelemetryBridge:

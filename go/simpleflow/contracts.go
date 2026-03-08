@@ -17,6 +17,8 @@ type WorkflowTraceTenant struct {
 }
 
 type RuntimeRegistration struct {
+	ID             string            `json:"id,omitempty"`
+	RegistrationID string            `json:"registration_id,omitempty"`
 	AgentID        string            `json:"agent_id,omitempty"`
 	AgentVersion   string            `json:"agent_version,omitempty"`
 	ExecutionMode  string            `json:"execution_mode,omitempty"`
@@ -26,6 +28,11 @@ type RuntimeRegistration struct {
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	RuntimeID      string            `json:"runtime_id,omitempty"`
 	RuntimeVersion string            `json:"runtime_version,omitempty"`
+}
+
+type RuntimeRegistrationValidationResult struct {
+	ValidationOK bool                `json:"validation_ok"`
+	Registration RuntimeRegistration `json:"registration"`
 }
 
 type InvokeRequest struct {

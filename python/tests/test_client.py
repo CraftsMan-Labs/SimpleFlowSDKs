@@ -61,6 +61,10 @@ class _FakeHTTPClient:
 
     def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
         self.calls.append((url, json))
+        if url.endswith("/v1/runtime/registrations/reg_123/validate"):
+            return _FakeResponse(
+                payload={"validation_ok": True, "registration": {"id": "reg_123"}}
+            )
         return _FakeResponse()
 
     def get(self, url: str, headers: dict) -> _FakeResponse:
@@ -136,6 +140,26 @@ class SimpleFlowClientTests(unittest.TestCase):
             agent_id="agent_1", chat_id="chat_1", user_id="user_1", limit=10
         )
         self.assertEqual(messages[0]["message_id"], "m1")
+
+    def test_runtime_registration_lifecycle_helpers(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.activate_runtime_registration("reg_123")
+        client.deactivate_runtime_registration("reg_123")
+        validation = client.validate_runtime_registration("reg_123")
+
+        called_urls = [url for (url, _) in fake_http.calls]
+        self.assertEqual(
+            called_urls,
+            [
+                "https://api.example/v1/runtime/registrations/reg_123/activate",
+                "https://api.example/v1/runtime/registrations/reg_123/deactivate",
+                "https://api.example/v1/runtime/registrations/reg_123/validate",
+            ],
+        )
+        self.assertEqual(validation["validation_ok"], True)
 
 
 class SamplingTests(unittest.TestCase):

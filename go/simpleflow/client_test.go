@@ -111,6 +111,51 @@ func TestRegisterRuntimeUsesCurrentPath(t *testing.T) {
 	}
 }
 
+func TestRuntimeLifecycleHelpersUseCurrentPaths(t *testing.T) {
+	calledPaths := make([]string, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledPaths = append(calledPaths, r.URL.Path)
+		if r.URL.Path == "/v1/runtime/registrations/reg_123/validate" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"validation_ok": true, "registration": map[string]any{"id": "reg_123"}})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	if err := client.ActivateRuntimeRegistration(context.Background(), "reg_123"); err != nil {
+		t.Fatalf("activate runtime registration: %v", err)
+	}
+	if err := client.DeactivateRuntimeRegistration(context.Background(), "reg_123"); err != nil {
+		t.Fatalf("deactivate runtime registration: %v", err)
+	}
+	validation, err := client.ValidateRuntimeRegistration(context.Background(), "reg_123")
+	if err != nil {
+		t.Fatalf("validate runtime registration: %v", err)
+	}
+
+	if len(calledPaths) != 3 {
+		t.Fatalf("expected three lifecycle calls, got %d", len(calledPaths))
+	}
+	if calledPaths[0] != "/v1/runtime/registrations/reg_123/activate" {
+		t.Fatalf("unexpected activate path: %s", calledPaths[0])
+	}
+	if calledPaths[1] != "/v1/runtime/registrations/reg_123/deactivate" {
+		t.Fatalf("unexpected deactivate path: %s", calledPaths[1])
+	}
+	if calledPaths[2] != "/v1/runtime/registrations/reg_123/validate" {
+		t.Fatalf("unexpected validate path: %s", calledPaths[2])
+	}
+	if !validation.ValidationOK || validation.Registration.ID != "reg_123" {
+		t.Fatalf("unexpected validation response: %+v", validation)
+	}
+}
+
 func TestListChatHistoryMessages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

@@ -13,29 +13,35 @@ import (
 )
 
 type ClientConfig struct {
-	BaseURL             string
-	APIToken            string
-	HTTPClient          *http.Client
-	RuntimeRegisterPath string
-	RuntimeInvokePath   string
-	RuntimeEventsPath   string
-	ChatMessagesPath    string
-	QueueContractsPath  string
-	ChatHistoryPath     string
-	AuthorizationScheme string
+	BaseURL               string
+	APIToken              string
+	HTTPClient            *http.Client
+	RuntimeRegisterPath   string
+	RuntimeInvokePath     string
+	RuntimeEventsPath     string
+	RuntimeActivatePath   string
+	RuntimeDeactivatePath string
+	RuntimeValidatePath   string
+	ChatMessagesPath      string
+	QueueContractsPath    string
+	ChatHistoryPath       string
+	AuthorizationScheme   string
 }
 
 type Client struct {
-	baseURL             *url.URL
-	httpClient          *http.Client
-	apiToken            string
-	runtimeRegisterPath string
-	runtimeInvokePath   string
-	runtimeEventsPath   string
-	chatMessagesPath    string
-	queueContractsPath  string
-	chatHistoryPath     string
-	authorizationScheme string
+	baseURL               *url.URL
+	httpClient            *http.Client
+	apiToken              string
+	runtimeRegisterPath   string
+	runtimeInvokePath     string
+	runtimeEventsPath     string
+	runtimeActivatePath   string
+	runtimeDeactivatePath string
+	runtimeValidatePath   string
+	chatMessagesPath      string
+	queueContractsPath    string
+	chatHistoryPath       string
+	authorizationScheme   string
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -68,6 +74,18 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if strings.TrimSpace(runtimeEventsPath) == "" {
 		runtimeEventsPath = "/v1/runtime/events"
 	}
+	runtimeActivatePath := cfg.RuntimeActivatePath
+	if strings.TrimSpace(runtimeActivatePath) == "" {
+		runtimeActivatePath = "/v1/runtime/registrations/{registration_id}/activate"
+	}
+	runtimeDeactivatePath := cfg.RuntimeDeactivatePath
+	if strings.TrimSpace(runtimeDeactivatePath) == "" {
+		runtimeDeactivatePath = "/v1/runtime/registrations/{registration_id}/deactivate"
+	}
+	runtimeValidatePath := cfg.RuntimeValidatePath
+	if strings.TrimSpace(runtimeValidatePath) == "" {
+		runtimeValidatePath = "/v1/runtime/registrations/{registration_id}/validate"
+	}
 	chatMessagesPath := cfg.ChatMessagesPath
 	if strings.TrimSpace(chatMessagesPath) == "" {
 		chatMessagesPath = "/v1/runtime/chat/messages"
@@ -86,21 +104,61 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL:             parsed,
-		httpClient:          httpClient,
-		apiToken:            strings.TrimSpace(cfg.APIToken),
-		runtimeRegisterPath: runtimeRegisterPath,
-		runtimeInvokePath:   runtimeInvokePath,
-		runtimeEventsPath:   runtimeEventsPath,
-		chatMessagesPath:    chatMessagesPath,
-		queueContractsPath:  queueContractsPath,
-		chatHistoryPath:     chatHistoryPath,
-		authorizationScheme: authorizationScheme,
+		baseURL:               parsed,
+		httpClient:            httpClient,
+		apiToken:              strings.TrimSpace(cfg.APIToken),
+		runtimeRegisterPath:   runtimeRegisterPath,
+		runtimeInvokePath:     runtimeInvokePath,
+		runtimeEventsPath:     runtimeEventsPath,
+		runtimeActivatePath:   runtimeActivatePath,
+		runtimeDeactivatePath: runtimeDeactivatePath,
+		runtimeValidatePath:   runtimeValidatePath,
+		chatMessagesPath:      chatMessagesPath,
+		queueContractsPath:    queueContractsPath,
+		chatHistoryPath:       chatHistoryPath,
+		authorizationScheme:   authorizationScheme,
 	}, nil
 }
 
 func (c *Client) RegisterRuntime(ctx context.Context, registration RuntimeRegistration) error {
 	return c.postJSON(ctx, c.runtimeRegisterPath, registration)
+}
+
+func (c *Client) CreateRuntimeRegistration(ctx context.Context, registration RuntimeRegistration) (RuntimeRegistration, error) {
+	created := RuntimeRegistration{}
+	if err := c.postJSONWithResponse(ctx, c.runtimeRegisterPath, registration, &created); err != nil {
+		return RuntimeRegistration{}, err
+	}
+	return created, nil
+}
+
+func (c *Client) ActivateRuntimeRegistration(ctx context.Context, registrationID string) error {
+	path, err := c.runtimeRegistrationActionPath(c.runtimeActivatePath, registrationID)
+	if err != nil {
+		return err
+	}
+	return c.postJSON(ctx, path, map[string]any{})
+}
+
+func (c *Client) DeactivateRuntimeRegistration(ctx context.Context, registrationID string) error {
+	path, err := c.runtimeRegistrationActionPath(c.runtimeDeactivatePath, registrationID)
+	if err != nil {
+		return err
+	}
+	return c.postJSON(ctx, path, map[string]any{})
+}
+
+func (c *Client) ValidateRuntimeRegistration(ctx context.Context, registrationID string) (RuntimeRegistrationValidationResult, error) {
+	path, err := c.runtimeRegistrationActionPath(c.runtimeValidatePath, registrationID)
+	if err != nil {
+		return RuntimeRegistrationValidationResult{}, err
+	}
+	result := RuntimeRegistrationValidationResult{}
+	err = c.postJSONWithResponse(ctx, path, map[string]any{}, &result)
+	if err != nil {
+		return RuntimeRegistrationValidationResult{}, err
+	}
+	return result, nil
 }
 
 func (c *Client) Invoke(ctx context.Context, request InvokeRequest) (InvokeResult, error) {
@@ -527,4 +585,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (c *Client) runtimeRegistrationActionPath(templatePath string, registrationID string) (string, error) {
+	trimmedID := strings.TrimSpace(registrationID)
+	if trimmedID == "" {
+		return "", fmt.Errorf("simpleflow sdk payload error: registration_id is required")
+	}
+	trimmedPath := strings.TrimSpace(templatePath)
+	if trimmedPath == "" {
+		return "", fmt.Errorf("simpleflow sdk config error: runtime registration path is required")
+	}
+	if strings.Contains(trimmedPath, "{registration_id}") {
+		return strings.ReplaceAll(trimmedPath, "{registration_id}", trimmedID), nil
+	}
+	if strings.HasSuffix(trimmedPath, "/") {
+		return trimmedPath + trimmedID, nil
+	}
+	return trimmedPath + "/" + trimmedID, nil
 }
