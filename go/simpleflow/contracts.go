@@ -8,6 +8,20 @@ type InvokeTrace struct {
 	TenantID string `json:"tenant_id"`
 }
 
+type WorkflowTraceTenant struct {
+	ConversationID string `json:"conversation_id,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+}
+
+type RuntimeRegistration struct {
+	RuntimeID      string            `json:"runtime_id"`
+	RuntimeVersion string            `json:"runtime_version,omitempty"`
+	Capabilities   []string          `json:"capabilities,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
 type InvokeRequest struct {
 	SchemaVersion  string          `json:"schema_version"`
 	RunID          string          `json:"run_id"`
@@ -48,10 +62,24 @@ type RuntimeEvent struct {
 	AgentID        string         `json:"agent_id"`
 	AgentVersion   string         `json:"agent_version"`
 	RunID          string         `json:"run_id"`
+	ConversationID string         `json:"conversation_id,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	TraceID        string         `json:"trace_id,omitempty"`
+	Sampled        *bool          `json:"sampled,omitempty"`
 	OrganizationID string         `json:"organization_id"`
 	UserID         string         `json:"user_id"`
 	TimestampMS    int64          `json:"timestamp_ms"`
 	Payload        map[string]any `json:"payload"`
+}
+
+type TelemetrySpan struct {
+	Name         string         `json:"name"`
+	StartTimeMS  int64          `json:"start_time_ms"`
+	EndTimeMS    int64          `json:"end_time_ms"`
+	Kind         string         `json:"kind,omitempty"`
+	Attributes   map[string]any `json:"attributes,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	StatusDetail string         `json:"status_detail,omitempty"`
 }
 
 type ChatMessageWrite struct {

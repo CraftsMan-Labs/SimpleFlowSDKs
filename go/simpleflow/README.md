@@ -5,8 +5,10 @@ This SDK helps remote runtime backends integrate with the SimpleFlow control pla
 ## Features
 
 - Typed invoke request/result and error envelope contracts.
-- Control-plane API client for runtime event, chat message, and queue contract writes.
+- Control-plane API client for runtime registration and invoke.
+- Runtime API client for event, chat message, and queue contract writes.
 - Invoke token verifier using JWKS-based signature validation.
+- Telemetry bridge with `simpleflow` and `otlp` modes.
 
 ## Install
 
@@ -25,10 +27,24 @@ if err != nil {
     panic(err)
 }
 
-err = client.ReportRuntimeEvent(ctx, simpleflow.RuntimeEvent{
+err = client.WriteEvent(ctx, simpleflow.RuntimeEvent{
     Type:         "runtime.invoke.accepted",
     AgentID:      "agent-1",
-    AgentVersion: "v1",
     RunID:        "run_123",
+})
+
+telemetry, err := client.WithTelemetry(simpleflow.TelemetryConfig{Mode: simpleflow.TelemetryModeSimpleFlow})
+if err != nil {
+    panic(err)
+}
+err = telemetry.EmitSpan(ctx, simpleflow.EmitSpanInput{
+    AgentID: "agent-1",
+    RunID:   "run_123",
+    TraceID: "trace_123",
+    Span: simpleflow.TelemetrySpan{
+        Name:        "llm.call",
+        StartTimeMS: 1000,
+        EndTimeMS:   1200,
+    },
 })
 ```
