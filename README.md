@@ -18,6 +18,7 @@ Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 
 - Control plane: `register_runtime(...)`, `invoke(...)`.
 - Runtime writes: `write_event(...)`, `write_chat_message(...)`, `publish_queue_contract(...)`.
+- Chat history: `list_chat_history_messages(...)`, `create_chat_history_message(...)`, `update_chat_history_message(...)`.
 - Workflow bridge: `write_event_from_workflow_result(...)`.
 - Telemetry bridge: `with_telemetry(...).emit_span(...)` with `simpleflow` and `otlp` modes.
 

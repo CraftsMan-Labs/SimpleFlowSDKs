@@ -6,8 +6,12 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 
 - Runtime events endpoint: `POST /v1/runtime/events`
 - Control-plane runtime endpoints:
-  - `POST /v1/runtimes/register`
+  - `POST /v1/runtime/registrations`
   - `POST /v1/runtime/invoke`
+- Chat history endpoints:
+  - `GET /v1/chat/history/messages`
+  - `POST /v1/chat/history/messages`
+  - `PATCH /v1/chat/history/messages/{message_id}`
 - Required correlation envelope fields:
   - `agent_id`, `run_id`, `trace_id`, `request_id`, `conversation_id`, `sampled`
 
@@ -21,6 +25,7 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 
 - Go SDK tests cover workflow-result event mapping and telemetry bridge event emission.
 - Python SDK tests cover workflow-result event mapping and deterministic sampling helper behavior.
+- Go and Python SDK tests cover chat history list APIs.
 - Both SDKs support telemetry mode routing:
   - `simpleflow`: emits runtime telemetry span events.
   - `otlp`: forwards spans to the caller-provided OTLP sink.

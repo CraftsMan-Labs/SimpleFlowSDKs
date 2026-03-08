@@ -7,6 +7,7 @@ This SDK helps remote runtime backends integrate with the SimpleFlow control pla
 - Typed invoke request/result and error envelope contracts.
 - Control-plane API client for runtime registration and invoke.
 - Runtime API client for event, chat message, and queue contract writes.
+- Chat history APIs for list/create/update by `agent_id` + `chat_id` + `user_id`.
 - Invoke token verifier using JWKS-based signature validation.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 
