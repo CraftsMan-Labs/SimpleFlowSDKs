@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from hashlib import sha256
 from math import isfinite
+import time
 from typing import Any
 
 import httpx
@@ -69,6 +70,10 @@ class SimpleFlowClient:
         self,
         base_url: str,
         api_token: str | None = None,
+        oauth_client_id: str | None = None,
+        oauth_client_secret: str | None = None,
+        oauth_token_path: str = "/v1/oauth/token",
+        oauth_token_leeway_seconds: int = 30,
         auth_sessions_path: str = "/v1/auth/sessions",
         auth_current_session_path: str = "/v1/auth/sessions/current",
         auth_me_path: str = "/v1/me",
@@ -88,6 +93,16 @@ class SimpleFlowClient:
             raise ValueError("simpleflow sdk config error: base_url is required")
         self._base_url = base_url.rstrip("/")
         self._api_token = api_token.strip() if api_token is not None else ""
+        self._oauth_client_id = (
+            oauth_client_id.strip() if oauth_client_id is not None else ""
+        )
+        self._oauth_client_secret = (
+            oauth_client_secret.strip() if oauth_client_secret is not None else ""
+        )
+        self._oauth_token_path = oauth_token_path
+        self._oauth_token_leeway_seconds = max(0, int(oauth_token_leeway_seconds))
+        self._oauth_access_token = ""
+        self._oauth_access_token_expires_at_unix = 0.0
         self._auth_sessions_path = auth_sessions_path
         self._auth_current_session_path = auth_current_session_path
         self._auth_me_path = auth_me_path
@@ -503,10 +518,75 @@ class SimpleFlowClient:
             )
 
     def _authorization_headers(self, auth_token: str | None = None) -> dict[str, str]:
-        token = self._api_token if auth_token is None else auth_token.strip()
+        token = ""
+        if auth_token is None:
+            token = self._api_token
+            if (
+                token == ""
+                and self._oauth_client_id != ""
+                and self._oauth_client_secret != ""
+            ):
+                token = self._ensure_oauth_access_token()
+        else:
+            token = auth_token.strip()
         if token == "":
             return {}
         return {"Authorization": f"Bearer {token}"}
+
+    def _ensure_oauth_access_token(self) -> str:
+        now = time.time()
+        if (
+            self._oauth_access_token != ""
+            and now + float(self._oauth_token_leeway_seconds)
+            < self._oauth_access_token_expires_at_unix
+        ):
+            return self._oauth_access_token
+
+        normalized_path = (
+            self._oauth_token_path
+            if self._oauth_token_path.startswith("/")
+            else f"/{self._oauth_token_path}"
+        )
+        url = f"{self._base_url}{normalized_path}"
+        response = self._client.post(
+            url,
+            json={
+                "grant_type": "client_credentials",
+                "client_id": self._oauth_client_id,
+                "client_secret": self._oauth_client_secret,
+            },
+            headers={"Content-Type": "application/json"},
+        )
+        if response.status_code < 200 or response.status_code >= 300:
+            self._raise_request_error(
+                path=normalized_path,
+                status_code=response.status_code,
+                body=response.text,
+            )
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                "simpleflow sdk oauth error: expected JSON object token response"
+            )
+        access_token = str(payload.get("access_token", "")).strip()
+        if access_token == "":
+            raise RuntimeError(
+                "simpleflow sdk oauth error: token response missing access_token"
+            )
+
+        expires_in_value = payload.get("expires_in", 0)
+        expires_in = 0.0
+        try:
+            expires_in = float(expires_in_value)
+        except (TypeError, ValueError):
+            expires_in = 0.0
+        if not isfinite(expires_in) or expires_in <= 0.0:
+            expires_in = 60.0
+
+        self._oauth_access_token = access_token
+        self._oauth_access_token_expires_at_unix = now + expires_in
+        return self._oauth_access_token
 
     def _runtime_registration_action_path(
         self, path_template: str, registration_id: str
