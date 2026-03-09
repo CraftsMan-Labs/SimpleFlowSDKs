@@ -26,3 +26,14 @@ Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 ## Compatibility
 
 - Version compatibility and contract mapping are tracked in `COMPATIBILITY_MATRIX.md`.
+
+## Developer commands
+
+Use the root `Makefile` for common workflows:
+
+- `make test` runs Go and Python tests.
+- `make lint-go` and `make fmt-go` run Go quality checks.
+- `make check-publish` runs release readiness checks.
+- `make publish-python-dry` builds Python artifacts without uploading.
+- `make publish-python` uploads Python artifacts with `twine`.
+- `make publish-go-tag VERSION=vX.Y.Z` creates and pushes a Go release tag.
