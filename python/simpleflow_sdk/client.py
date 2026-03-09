@@ -52,6 +52,55 @@ def _validate_sample_rate(sample_rate: float | None) -> None:
         )
 
 
+def _count_workflow_events_by_type(workflow_result: dict[str, Any]) -> dict[str, int]:
+    events = workflow_result.get("events")
+    if not isinstance(events, list):
+        return {}
+
+    counts: dict[str, int] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = str(event.get("event_type", "")).strip()
+        if event_type == "":
+            continue
+        counts[event_type] = counts.get(event_type, 0) + 1
+    return counts
+
+
+def _extract_workflow_nerdstats(
+    workflow_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    events = workflow_result.get("events")
+    if not isinstance(events, list):
+        return None
+
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        if str(event.get("event_type", "")).strip() != "workflow_completed":
+            continue
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        nerdstats = metadata.get("nerdstats")
+        if isinstance(nerdstats, dict):
+            return nerdstats
+    return None
+
+
+def _build_trace_url(
+    trace_id: str, trace_ui_base_url: str = "http://localhost:16686"
+) -> str:
+    normalized_trace_id = trace_id.strip()
+    if normalized_trace_id == "":
+        return ""
+    normalized_base_url = trace_ui_base_url.strip().rstrip("/")
+    if normalized_base_url == "":
+        normalized_base_url = "http://localhost:16686"
+    return f"{normalized_base_url}/trace/{normalized_trace_id}"
+
+
 def _should_sample(trace_id: str, sample_rate: float | None) -> bool:
     if sample_rate is None:
         return True
@@ -405,6 +454,77 @@ class SimpleFlowClient:
                 "trace_id": trace_id,
                 "sampled": sampled,
                 "payload": normalized_result,
+            }
+        )
+
+    def write_chat_message_from_workflow_result(
+        self,
+        *,
+        agent_id: str,
+        organization_id: str,
+        run_id: str,
+        role: str,
+        workflow_result: Any,
+        trace_id: str = "",
+        span_id: str = "",
+        tenant_id: str = "",
+        trace_ui_base_url: str = "http://localhost:16686",
+        chat_id: str | None = None,
+        message_id: str | None = None,
+        direction: str | None = None,
+        created_at_ms: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> None:
+        normalized_result = _normalize_payload(workflow_result)
+        normalized_trace_id = trace_id.strip()
+        events = normalized_result.get("events")
+        event_counts = _count_workflow_events_by_type(normalized_result)
+        nerdstats = _extract_workflow_nerdstats(normalized_result)
+
+        content = {
+            "reply": normalized_result.get("terminal_output"),
+            "terminal_output": normalized_result.get("terminal_output"),
+            "workflow": {
+                "workflow_id": normalized_result.get("workflow_id"),
+                "terminal_node": normalized_result.get("terminal_node"),
+            },
+        }
+
+        metadata: dict[str, Any] = {
+            "source": "runtime.workflow.invoke",
+            "workflow_id": normalized_result.get("workflow_id"),
+            "terminal_node": normalized_result.get("terminal_node"),
+            "trace": normalized_result.get("trace", []),
+            "step_timings": normalized_result.get("step_timings", []),
+            "event_counts": event_counts,
+            "nerdstats": nerdstats,
+            "llm_node_metrics": normalized_result.get("llm_node_metrics", {}),
+            "total_elapsed_ms": normalized_result.get("total_elapsed_ms"),
+            "trace_context": {
+                "trace_id": normalized_trace_id,
+                "span_id": span_id.strip(),
+                "tenant_id": tenant_id.strip(),
+                "trace_url": _build_trace_url(
+                    normalized_trace_id, trace_ui_base_url=trace_ui_base_url
+                ),
+            },
+        }
+        if isinstance(events, list):
+            metadata["events"] = events
+
+        self.write_chat_message(
+            {
+                "agent_id": agent_id,
+                "organization_id": organization_id,
+                "run_id": run_id,
+                "role": role,
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "direction": direction,
+                "content": content,
+                "metadata": metadata,
+                "idempotency_key": idempotency_key,
+                "created_at_ms": created_at_ms,
             }
         )
 

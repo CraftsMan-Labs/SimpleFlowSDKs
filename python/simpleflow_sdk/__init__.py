@@ -10,6 +10,7 @@ from .client import (
 from .contracts import (
     ChatHistoryMessage,
     ChatMessageWrite,
+    InvokeTrace,
     QueueContract,
     RuntimeEvent,
     RuntimeRegistration,
@@ -26,6 +27,7 @@ __all__ = [
     "SimpleFlowLifecycleError",
     "InvokeTokenVerifier",
     "RuntimeEvent",
+    "InvokeTrace",
     "ChatHistoryMessage",
     "ChatMessageWrite",
     "QueueContract",

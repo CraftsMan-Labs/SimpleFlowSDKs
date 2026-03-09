@@ -126,6 +126,81 @@ class _FakeSpan:
 
 
 class SimpleFlowClientTests(unittest.TestCase):
+    def test_write_chat_message_from_workflow_result_persists_trace_metadata(
+        self,
+    ) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        fake_http.registrations_payload = []
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_chat_message_from_workflow_result(
+            agent_id="agent_support_v1",
+            organization_id="org_1",
+            run_id="run_1",
+            role="assistant",
+            trace_id="92f4be5ae517295005df76967d32984b",
+            span_id="span_1",
+            tenant_id="tenant_1",
+            workflow_result={
+                "workflow_id": "email-chat-draft-or-clarify",
+                "terminal_node": "generate_email_draft",
+                "terminal_output": {"subject": "S", "body": "B"},
+                "trace": ["detect_scenario_context", "generate_email_draft"],
+                "step_timings": [],
+                "llm_node_metrics": {},
+                "total_elapsed_ms": 123,
+                "events": [
+                    {"event_type": "workflow_started", "metadata": {}},
+                    {
+                        "event_type": "workflow_completed",
+                        "metadata": {
+                            "nerdstats": {
+                                "total_elapsed_ms": 123,
+                                "total_tokens": 456,
+                            }
+                        },
+                    },
+                ],
+            },
+        )
+
+        _, payload, _ = fake_http.calls[-1]
+        self.assertEqual(payload["role"], "assistant")
+        self.assertEqual(
+            payload["content"]["workflow"]["workflow_id"], "email-chat-draft-or-clarify"
+        )
+        self.assertEqual(
+            payload["metadata"]["trace_context"]["trace_url"],
+            "http://localhost:16686/trace/92f4be5ae517295005df76967d32984b",
+        )
+        self.assertEqual(payload["metadata"]["event_counts"]["workflow_completed"], 1)
+        self.assertEqual(payload["metadata"]["nerdstats"]["total_tokens"], 456)
+
+    def test_write_chat_message_from_workflow_result_uses_custom_trace_base_url(
+        self,
+    ) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        fake_http.registrations_payload = []
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_chat_message_from_workflow_result(
+            agent_id="agent_support_v1",
+            organization_id="org_1",
+            run_id="run_1",
+            role="assistant",
+            trace_id="trace_abc",
+            trace_ui_base_url="https://jaeger.example",
+            workflow_result={"workflow_id": "wf", "terminal_node": "done"},
+        )
+
+        _, payload, _ = fake_http.calls[-1]
+        self.assertEqual(
+            payload["metadata"]["trace_context"]["trace_url"],
+            "https://jaeger.example/trace/trace_abc",
+        )
+
     def test_write_event_from_workflow_result_extracts_trace_fields(self) -> None:
         client = SimpleFlowClient(base_url="https://api.example")
         fake_http = _FakeHTTPClient()
