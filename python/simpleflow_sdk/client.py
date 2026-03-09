@@ -310,6 +310,17 @@ class SimpleFlowClient:
         body["event_type"] = event_type
         body.pop("type", None)
         idempotency_key = str(body.pop("idempotency_key", "")).strip()
+        allowed_keys = {
+            "agent_id",
+            "organization_id",
+            "run_id",
+            "event_type",
+            "trace_id",
+            "conversation_id",
+            "request_id",
+            "payload",
+        }
+        body = {key: value for key, value in body.items() if key in allowed_keys}
         headers: dict[str, str] = {}
         if idempotency_key != "":
             headers["Idempotency-Key"] = idempotency_key
@@ -321,6 +332,19 @@ class SimpleFlowClient:
     def write_chat_message(self, message: Any) -> None:
         body = _normalize_payload(message)
         idempotency_key = str(body.pop("idempotency_key", "")).strip()
+        body.pop("created_at_ms", None)
+        allowed_keys = {
+            "agent_id",
+            "organization_id",
+            "run_id",
+            "chat_id",
+            "message_id",
+            "role",
+            "direction",
+            "content",
+            "metadata",
+        }
+        body = {key: value for key, value in body.items() if key in allowed_keys}
         direction = str(body.get("direction", "")).strip()
         if direction == "":
             body["direction"] = "outbound"

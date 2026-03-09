@@ -126,6 +126,57 @@ class _FakeSpan:
 
 
 class SimpleFlowClientTests(unittest.TestCase):
+    def test_write_chat_message_strips_created_at_ms(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_chat_message(
+            {
+                "agent_id": "agent_1",
+                "organization_id": "org_1",
+                "run_id": "run_1",
+                "chat_id": "chat_1",
+                "message_id": "msg_1",
+                "role": "assistant",
+                "content": {"reply": "ok"},
+                "metadata": {},
+                "created_at_ms": 123,
+                "idempotency_key": "idem_1",
+            }
+        )
+
+        _, payload, headers = fake_http.calls[-1]
+        self.assertNotIn("created_at_ms", payload)
+        self.assertEqual(headers.get("Idempotency-Key"), "idem_1")
+
+    def test_write_event_strips_unknown_runtime_fields(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_event(
+            {
+                "agent_id": "agent_1",
+                "organization_id": "org_1",
+                "run_id": "run_1",
+                "type": "runtime.invoke.completed",
+                "trace_id": "trace_1",
+                "conversation_id": "chat_1",
+                "request_id": "req_1",
+                "payload": {"status": "ok"},
+                "agent_version": "v1",
+                "timestamp_ms": 123,
+                "idempotency_key": "evt_1",
+            }
+        )
+
+        _, payload, headers = fake_http.calls[-1]
+        self.assertEqual(payload.get("event_type"), "runtime.invoke.completed")
+        self.assertNotIn("agent_version", payload)
+        self.assertNotIn("timestamp_ms", payload)
+        self.assertEqual(headers.get("Idempotency-Key"), "evt_1")
+
     def test_write_chat_message_from_workflow_result_persists_trace_metadata(
         self,
     ) -> None:
