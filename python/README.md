@@ -4,8 +4,10 @@ This SDK helps Python remote runtime backends integrate with the SimpleFlow cont
 
 ## Features
 
-- API client for runtime registration, lifecycle helpers (activate/deactivate/validate), invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
+- API client for auth/session helpers, runtime registration lifecycle orchestration (`list/activate/deactivate/validate/ensure_active`), invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
 - Invoke token verification helper for control-plane issued tokens (HS256 shared key and RS256 public key/JWKS usage).
+- Method-level auth token overrides on control-plane and lifecycle methods.
+- Typed request errors (`SimpleFlowAuthenticationError`, `SimpleFlowAuthorizationError`, `SimpleFlowLifecycleError`).
 - Typed dataclasses for common runtime payloads and telemetry span envelopes.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 

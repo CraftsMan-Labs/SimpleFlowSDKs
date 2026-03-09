@@ -1,5 +1,12 @@
 from .auth import InvokeTokenVerifier
-from .client import SimpleFlowClient, TelemetryBridge
+from .client import (
+    SimpleFlowAuthenticationError,
+    SimpleFlowAuthorizationError,
+    SimpleFlowClient,
+    SimpleFlowLifecycleError,
+    SimpleFlowRequestError,
+    TelemetryBridge,
+)
 from .contracts import (
     ChatHistoryMessage,
     ChatMessageWrite,
@@ -13,6 +20,10 @@ from .contracts import (
 __all__ = [
     "SimpleFlowClient",
     "TelemetryBridge",
+    "SimpleFlowRequestError",
+    "SimpleFlowAuthenticationError",
+    "SimpleFlowAuthorizationError",
+    "SimpleFlowLifecycleError",
     "InvokeTokenVerifier",
     "RuntimeEvent",
     "ChatHistoryMessage",

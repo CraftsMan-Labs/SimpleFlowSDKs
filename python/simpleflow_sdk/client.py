@@ -8,6 +8,28 @@ from typing import Any
 import httpx
 
 
+class SimpleFlowRequestError(RuntimeError):
+    def __init__(self, *, status_code: int, detail: str, path: str) -> None:
+        super().__init__(
+            f"simpleflow sdk request error: status={status_code} path={path} detail={detail}"
+        )
+        self.status_code = status_code
+        self.detail = detail
+        self.path = path
+
+
+class SimpleFlowAuthenticationError(SimpleFlowRequestError):
+    pass
+
+
+class SimpleFlowAuthorizationError(SimpleFlowRequestError):
+    pass
+
+
+class SimpleFlowLifecycleError(SimpleFlowRequestError):
+    pass
+
+
 def _normalize_payload(payload: Any) -> dict[str, Any]:
     if payload is None:
         return {}
@@ -47,6 +69,9 @@ class SimpleFlowClient:
         self,
         base_url: str,
         api_token: str | None = None,
+        auth_sessions_path: str = "/v1/auth/sessions",
+        auth_current_session_path: str = "/v1/auth/sessions/current",
+        auth_me_path: str = "/v1/me",
         runtime_register_path: str = "/v1/runtime/registrations",
         runtime_invoke_path: str = "/v1/runtime/invoke",
         runtime_events_path: str = "/v1/runtime/events",
@@ -55,6 +80,7 @@ class SimpleFlowClient:
         runtime_validate_path: str = "/v1/runtime/registrations/{registration_id}/validate",
         chat_messages_path: str = "/v1/runtime/chat/messages",
         queue_contracts_path: str = "/v1/runtime/queue/contracts",
+        chat_sessions_path: str = "/v1/chat/history/sessions",
         chat_history_path: str = "/v1/chat/history/messages",
         timeout_seconds: float = 10.0,
     ) -> None:
@@ -62,6 +88,9 @@ class SimpleFlowClient:
             raise ValueError("simpleflow sdk config error: base_url is required")
         self._base_url = base_url.rstrip("/")
         self._api_token = api_token.strip() if api_token is not None else ""
+        self._auth_sessions_path = auth_sessions_path
+        self._auth_current_session_path = auth_current_session_path
+        self._auth_me_path = auth_me_path
         self._runtime_register_path = runtime_register_path
         self._runtime_invoke_path = runtime_invoke_path
         self._runtime_events_path = runtime_events_path
@@ -70,41 +99,143 @@ class SimpleFlowClient:
         self._runtime_validate_path = runtime_validate_path
         self._chat_messages_path = chat_messages_path
         self._queue_contracts_path = queue_contracts_path
+        self._chat_sessions_path = chat_sessions_path
         self._chat_history_path = chat_history_path
         self._client = httpx.Client(timeout=timeout_seconds)
 
     def close(self) -> None:
         self._client.close()
 
-    def register_runtime(self, registration: Any) -> dict[str, Any]:
-        return self._post(self._runtime_register_path, registration)
+    def create_session(self, email: str, password: str) -> dict[str, Any]:
+        payload = {"email": email, "password": password}
+        return self._post(self._auth_sessions_path, payload, auth_token="")
 
-    def activate_runtime_registration(self, registration_id: str) -> None:
+    def delete_current_session(self, auth_token: str | None = None) -> None:
+        self._delete(self._auth_current_session_path, auth_token=auth_token)
+
+    def get_me(self, auth_token: str | None = None) -> dict[str, Any]:
+        return self._get(self._auth_me_path, auth_token=auth_token)
+
+    def register_runtime(
+        self, registration: Any, auth_token: str | None = None
+    ) -> dict[str, Any]:
+        return self._post(
+            self._runtime_register_path, registration, auth_token=auth_token
+        )
+
+    def list_runtime_registrations(
+        self,
+        *,
+        agent_id: str,
+        agent_version: str,
+        auth_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        path = f"{self._runtime_register_path}?agent_id={agent_id}&agent_version={agent_version}"
+        response = self._get(path, auth_token=auth_token)
+        registrations = response.get("registrations")
+        if isinstance(registrations, list):
+            return [item for item in registrations if isinstance(item, dict)]
+        return []
+
+    def activate_runtime_registration(
+        self, registration_id: str, auth_token: str | None = None
+    ) -> None:
         self._post(
             self._runtime_registration_action_path(
                 self._runtime_activate_path, registration_id
             ),
             {},
+            auth_token=auth_token,
         )
 
-    def deactivate_runtime_registration(self, registration_id: str) -> None:
+    def deactivate_runtime_registration(
+        self, registration_id: str, auth_token: str | None = None
+    ) -> None:
         self._post(
             self._runtime_registration_action_path(
                 self._runtime_deactivate_path, registration_id
             ),
             {},
+            auth_token=auth_token,
         )
 
-    def validate_runtime_registration(self, registration_id: str) -> dict[str, Any]:
+    def validate_runtime_registration(
+        self, registration_id: str, auth_token: str | None = None
+    ) -> dict[str, Any]:
         return self._post(
             self._runtime_registration_action_path(
                 self._runtime_validate_path, registration_id
             ),
             {},
+            auth_token=auth_token,
         )
 
-    def invoke(self, request: Any) -> dict[str, Any]:
-        response = self._post(self._runtime_invoke_path, request)
+    def ensure_runtime_registration_active(
+        self,
+        *,
+        registration: Any,
+        auth_token: str | None = None,
+    ) -> dict[str, Any]:
+        payload = _normalize_payload(registration)
+        requested_agent_id = str(payload.get("agent_id", "")).strip()
+        requested_agent_version = str(payload.get("agent_version", "")).strip()
+        if requested_agent_id == "" or requested_agent_version == "":
+            raise ValueError(
+                "simpleflow sdk payload error: registration agent_id and agent_version are required"
+            )
+
+        existing = self.list_runtime_registrations(
+            agent_id=requested_agent_id,
+            agent_version=requested_agent_version,
+            auth_token=auth_token,
+        )
+        for item in existing:
+            status = str(item.get("status", "")).strip().lower()
+            if status == "active":
+                return {
+                    "status": "active",
+                    "registration": item,
+                    "registration_id": str(
+                        item.get("id", item.get("registration_id", ""))
+                    ).strip(),
+                    "created": False,
+                    "validated": False,
+                    "activated": False,
+                }
+
+        target = existing[0] if len(existing) > 0 else None
+        created = False
+        registration_id = ""
+        if target is None:
+            target = self.register_runtime(payload, auth_token=auth_token)
+            created = True
+
+        registration_id = str(
+            target.get("id", target.get("registration_id", ""))
+        ).strip()
+        if registration_id == "":
+            raise SimpleFlowLifecycleError(
+                status_code=502,
+                detail="registration response did not include registration id",
+                path=self._runtime_register_path,
+            )
+
+        validation = self.validate_runtime_registration(
+            registration_id, auth_token=auth_token
+        )
+        self.activate_runtime_registration(registration_id, auth_token=auth_token)
+        return {
+            "status": "active",
+            "registration": target,
+            "registration_id": registration_id,
+            "validation": validation,
+            "created": created,
+            "validated": True,
+            "activated": True,
+        }
+
+    def invoke(self, request: Any, auth_token: str | None = None) -> dict[str, Any]:
+        response = self._post(self._runtime_invoke_path, request, auth_token=auth_token)
         return response
 
     def write_event(self, event: Any) -> None:
@@ -159,17 +290,41 @@ class SimpleFlowClient:
         self._post(self._queue_contracts_path, body, extra_headers=headers)
 
     def list_chat_history_messages(
-        self, *, agent_id: str, chat_id: str, user_id: str, limit: int = 50
+        self,
+        *,
+        agent_id: str,
+        chat_id: str,
+        user_id: str,
+        limit: int = 50,
+        auth_token: str | None = None,
     ) -> list[dict[str, Any]]:
         path = f"{self._chat_history_path}?agent_id={agent_id}&chat_id={chat_id}&user_id={user_id}&limit={limit}"
-        response = self._get(path)
+        response = self._get(path, auth_token=auth_token)
         messages = response.get("messages")
         if isinstance(messages, list):
             return [item for item in messages if isinstance(item, dict)]
         return []
 
-    def create_chat_history_message(self, message: Any) -> dict[str, Any]:
-        return self._post(self._chat_history_path, message)
+    def list_chat_sessions(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        status: str = "active",
+        limit: int = 50,
+        auth_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        path = f"{self._chat_sessions_path}?agent_id={agent_id}&user_id={user_id}&status={status}&limit={limit}"
+        response = self._get(path, auth_token=auth_token)
+        sessions = response.get("sessions")
+        if isinstance(sessions, list):
+            return [item for item in sessions if isinstance(item, dict)]
+        return []
+
+    def create_chat_history_message(
+        self, message: Any, auth_token: str | None = None
+    ) -> dict[str, Any]:
+        return self._post(self._chat_history_path, message, auth_token=auth_token)
 
     def update_chat_history_message(
         self,
@@ -180,6 +335,7 @@ class SimpleFlowClient:
         user_id: str,
         content: Any,
         metadata: Any,
+        auth_token: str | None = None,
     ) -> dict[str, Any]:
         payload = {
             "agent_id": agent_id,
@@ -188,7 +344,11 @@ class SimpleFlowClient:
             "content": _normalize_payload(content),
             "metadata": _normalize_payload(metadata),
         }
-        return self._patch(f"{self._chat_history_path}/{message_id}", payload)
+        return self._patch(
+            f"{self._chat_history_path}/{message_id}",
+            payload,
+            auth_token=auth_token,
+        )
 
     def write_event_from_workflow_result(
         self,
@@ -254,21 +414,23 @@ class SimpleFlowClient:
         path: str,
         payload: Any,
         extra_headers: dict[str, str] | None = None,
+        auth_token: str | None = None,
     ) -> dict[str, Any]:
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{self._base_url}{normalized_path}"
         body = _normalize_payload(payload)
 
         headers = {"Content-Type": "application/json"}
-        if self._api_token != "":
-            headers["Authorization"] = f"Bearer {self._api_token}"
+        headers.update(self._authorization_headers(auth_token))
         if extra_headers is not None:
             headers.update(extra_headers)
 
         response = self._client.post(url, json=body, headers=headers)
         if response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError(
-                f"simpleflow sdk request error: status={response.status_code} body={response.text.strip()}"
+            self._raise_request_error(
+                path=normalized_path,
+                status_code=response.status_code,
+                body=response.text,
             )
         if response.text.strip() == "":
             return {}
@@ -284,16 +446,16 @@ class SimpleFlowClient:
             "simpleflow sdk request error: expected JSON object response body"
         )
 
-    def _get(self, path: str) -> dict[str, Any]:
+    def _get(self, path: str, auth_token: str | None = None) -> dict[str, Any]:
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{self._base_url}{normalized_path}"
-        headers: dict[str, str] = {}
-        if self._api_token != "":
-            headers["Authorization"] = f"Bearer {self._api_token}"
+        headers = self._authorization_headers(auth_token)
         response = self._client.get(url, headers=headers)
         if response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError(
-                f"simpleflow sdk request error: status={response.status_code} body={response.text.strip()}"
+            self._raise_request_error(
+                path=normalized_path,
+                status_code=response.status_code,
+                body=response.text,
             )
         if response.text.strip() == "":
             return {}
@@ -304,17 +466,20 @@ class SimpleFlowClient:
             "simpleflow sdk request error: expected JSON object response body"
         )
 
-    def _patch(self, path: str, payload: Any) -> dict[str, Any]:
+    def _patch(
+        self, path: str, payload: Any, auth_token: str | None = None
+    ) -> dict[str, Any]:
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{self._base_url}{normalized_path}"
         body = _normalize_payload(payload)
         headers = {"Content-Type": "application/json"}
-        if self._api_token != "":
-            headers["Authorization"] = f"Bearer {self._api_token}"
+        headers.update(self._authorization_headers(auth_token))
         response = self._client.patch(url, json=body, headers=headers)
         if response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError(
-                f"simpleflow sdk request error: status={response.status_code} body={response.text.strip()}"
+            self._raise_request_error(
+                path=normalized_path,
+                status_code=response.status_code,
+                body=response.text,
             )
         if response.text.strip() == "":
             return {}
@@ -324,6 +489,24 @@ class SimpleFlowClient:
         raise RuntimeError(
             "simpleflow sdk request error: expected JSON object response body"
         )
+
+    def _delete(self, path: str, auth_token: str | None = None) -> None:
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        url = f"{self._base_url}{normalized_path}"
+        headers = self._authorization_headers(auth_token)
+        response = self._client.delete(url, headers=headers)
+        if response.status_code < 200 or response.status_code >= 300:
+            self._raise_request_error(
+                path=normalized_path,
+                status_code=response.status_code,
+                body=response.text,
+            )
+
+    def _authorization_headers(self, auth_token: str | None = None) -> dict[str, str]:
+        token = self._api_token if auth_token is None else auth_token.strip()
+        if token == "":
+            return {}
+        return {"Authorization": f"Bearer {token}"}
 
     def _runtime_registration_action_path(
         self, path_template: str, registration_id: str
@@ -338,6 +521,35 @@ class SimpleFlowClient:
         if path_template.endswith("/"):
             return f"{path_template}{trimmed_id}"
         return f"{path_template}/{trimmed_id}"
+
+    def _raise_request_error(self, *, path: str, status_code: int, body: str) -> None:
+        detail = body.strip()
+        if detail == "":
+            detail = "request failed"
+        if status_code == 401:
+            raise SimpleFlowAuthenticationError(
+                status_code=status_code,
+                detail=detail,
+                path=path,
+            )
+        if status_code == 403:
+            raise SimpleFlowAuthorizationError(
+                status_code=status_code,
+                detail=detail,
+                path=path,
+            )
+        if self._is_lifecycle_path(path):
+            raise SimpleFlowLifecycleError(
+                status_code=status_code,
+                detail=detail,
+                path=path,
+            )
+        raise SimpleFlowRequestError(status_code=status_code, detail=detail, path=path)
+
+    def _is_lifecycle_path(self, path: str) -> bool:
+        normalized = path if path.startswith("/") else f"/{path}"
+        registration_root = self._runtime_register_path.rstrip("/")
+        return normalized.startswith(registration_root)
 
 
 class TelemetryBridge:
