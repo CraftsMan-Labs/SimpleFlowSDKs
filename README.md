@@ -6,6 +6,7 @@ Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 
 - `go/simpleflow`: Go SDK client, auth token verifier, and contract types.
 - `python/simpleflow_sdk`: Python SDK client, auth token verifier, and contract dataclasses.
+- `node/simpleflow_sdk`: Node SDK client for runtime APIs, workflow bridge, and telemetry bridge.
 - `.opencode`: shared agent skills and automation guidance copied from SimpleFlow.
 
 ## Scope
@@ -22,18 +23,32 @@ Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 - Chat history: `list_chat_history_messages(...)`, `create_chat_history_message(...)`, `update_chat_history_message(...)`.
 - Workflow bridge: `write_event_from_workflow_result(...)`.
 - Telemetry bridge: `with_telemetry(...).emit_span(...)` with `simpleflow` and `otlp` modes.
+- Canonical workflow telemetry payload: `telemetry-envelope.v1` (see `TELEMETRY_ENVELOPE_V1.md`).
 
 ## Compatibility
 
 - Version compatibility and contract mapping are tracked in `COMPATIBILITY_MATRIX.md`.
 
+## Documentation
+
+- VitePress docs source lives in `docs/`.
+- Production docs URL: `https://docs.simpleflow-sdk.craftsmanlabs.net`.
+- Local docs commands: `make docs-dev`, `make docs-build`, `make docs-preview`.
+
 ## Developer commands
 
 Use the root `Makefile` for common workflows:
 
-- `make test` runs Go and Python tests.
+- `make test` runs Go, Python, and Node tests.
+- `make test-node` runs Node SDK tests.
 - `make lint-go` and `make fmt-go` run Go quality checks.
 - `make check-publish` runs release readiness checks.
+- `make check-publish-all` runs release checks plus dry-run publish checks.
 - `make publish-python-dry` builds Python artifacts without uploading.
-- `make publish-python` uploads Python artifacts with `twine`.
+- `make publish-python` uploads Python artifacts with Doppler + `uv publish`.
+- `make publish-node-dry` runs npm publish dry-run for Node SDK.
+- `make publish-node` uploads Node package using env token or local npm session.
+- `make publish-node-doppler` uploads Node package with Doppler + `npm publish`.
+- `make publish-all` publishes both Python and Node SDK packages.
+- `make version-patch` / `make version-minor` / `make version-major` bump Python + Node versions together.
 - `make publish-go-tag VERSION=vX.Y.Z` creates and pushes a Go release tag.

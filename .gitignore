@@ -1,2 +1,14 @@
 __pycache__/
 *.pyc
+
+# Python packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# Python tool caches
+.pytest_cache/
+
+# Docs artifacts
+docs/node_modules/
+docs/.vitepress/dist/
