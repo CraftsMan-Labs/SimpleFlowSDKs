@@ -14,6 +14,7 @@ VERSION ?=
 DOPPLER_RUN ?= doppler run --command
 NPM_OTP ?=
 AUTO_GIT ?= 0
+PUBLISH_CHECK_URL ?= https://pypi.org/simple
 
 help:
 	@echo "SimpleFlowSDKs developer commands"
@@ -119,7 +120,7 @@ publish-python: build-python
 	if [ "$$1" = "$(PYTHON_DIST_DIR)/simpleflow_sdk-$$VERSION_VALUE*" ]; then echo "[publish-python] missing dist artifacts for version $$VERSION_VALUE"; exit 1; fi; \
 	echo "[publish-python] token_source=$$TOKEN_SOURCE token_len=$${#TOKEN_VALUE}"; \
 	if [ -z "$$TOKEN_VALUE" ]; then echo "[publish-python] missing V_PUBLISH_TOKEN/UV_PUBLISH_TOKEN"; exit 1; fi; \
-	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish "$$@"'
+	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish --check-url "$${UV_PUBLISH_CHECK_URL:-$(PUBLISH_CHECK_URL)}" "$$@"'
 
 publish-node-dry:
 	cd "$(NODE_SDK_DIR)" && npm publish --access public --dry-run
