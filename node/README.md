@@ -19,7 +19,7 @@ npm install ./node/simpleflow_sdk
 ## Minimal usage
 
 ```js
-const { SimpleFlowClient } = require("@simpleflow/sdk")
+const { SimpleFlowClient } = require("simpleflow-sdk")
 
 const client = new SimpleFlowClient({
   baseUrl: "https://api.simpleflow.example",
