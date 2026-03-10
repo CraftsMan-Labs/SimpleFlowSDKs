@@ -38,5 +38,6 @@ features:
 
 - New integration: [Quick Start](/quickstart)
 - SimpleAgents to SimpleFlow bridge: [Agent Integration](/agent-integration)
+- Full from-zero runnable setup: [Zero to Control Plane](/agent-zero-to-control-plane)
 - Canonical payload contract: [Telemetry Envelope V1](/telemetry-envelope-v1)
 - Language-specific references: [Node](/sdk-node), [Python](/sdk-python), [Go](/sdk-go)

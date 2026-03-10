@@ -11,6 +11,7 @@ export default defineConfig({
       { text: "Home", link: "/" },
       { text: "Quick Start", link: "/quickstart" },
       { text: "Agent Integration", link: "/agent-integration" },
+      { text: "Zero to Control Plane", link: "/agent-zero-to-control-plane" },
       { text: "Telemetry", link: "/telemetry-envelope-v1" }
     ],
     sidebar: [
@@ -19,7 +20,8 @@ export default defineConfig({
         items: [
           { text: "Overview", link: "/" },
           { text: "Quick Start", link: "/quickstart" },
-          { text: "Agent Integration", link: "/agent-integration" }
+          { text: "Agent Integration", link: "/agent-integration" },
+          { text: "Zero to Control Plane", link: "/agent-zero-to-control-plane" }
         ]
       },
       {

@@ -67,3 +67,10 @@ SIMPLE_AGENTS_WORKFLOW_STREAM_INCLUDE_RAW=1 make run-node-chat-history
 ```
 
 Then bridge final result to SimpleFlow via `writeEventFromWorkflowResult(...)` so `nerdstats` and usage summaries remain queryable.
+
+## Want a full project from zero?
+
+If you want the complete setup (project scaffold, workflow sync, runtime registration, local run, and invoke verification), use:
+
+- [Zero to Control Plane](/agent-zero-to-control-plane)
+- runnable example project: `examples/simpleflow-hr-agent`
