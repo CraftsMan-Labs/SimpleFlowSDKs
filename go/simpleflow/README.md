@@ -51,6 +51,10 @@ err = telemetry.EmitSpan(ctx, simpleflow.EmitSpanInput{
 })
 ```
 
+## Security note: runtime endpoint allowlist
+
+If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime registration calls from this SDK (`CreateRuntimeRegistration` / lifecycle helpers that create registrations) return `400` when `EndpointURL` uses a host not present in that allowlist.
+
 ## Auth verifier modes
 
 ```go

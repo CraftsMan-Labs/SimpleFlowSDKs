@@ -40,6 +40,10 @@ telemetry.emit_span(
 )
 ```
 
+## Security note: runtime endpoint allowlist
+
+If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime registration calls from this SDK (`register_runtime` / `ensure_runtime_registration_active`) will fail with `400` unless the registration `endpoint_url` host is included in that allowlist.
+
 ## Auth verifier usage
 
 ```python
