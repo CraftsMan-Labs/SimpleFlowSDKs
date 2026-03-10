@@ -261,6 +261,8 @@ class SimpleFlowClientTests(unittest.TestCase):
         client.write_event_from_workflow_result(
             agent_id="agent_support_v1",
             workflow_result={
+                "workflow_id": "email-chat-draft-or-clarify",
+                "terminal_node": "ask_for_scenario",
                 "run_id": "run_123",
                 "metadata": {
                     "telemetry": {"trace_id": "trace_123", "sampled": True},
@@ -268,9 +270,31 @@ class SimpleFlowClientTests(unittest.TestCase):
                         "tenant": {
                             "conversation_id": "chat_123",
                             "request_id": "req_123",
+                            "user_id": "user_123",
                         }
                     },
                 },
+                "events": [
+                    {"event_type": "workflow_started"},
+                    {
+                        "event_type": "workflow_completed",
+                        "metadata": {
+                            "nerdstats": {
+                                "total_input_tokens": 10,
+                                "total_output_tokens": 5,
+                                "total_tokens": 15,
+                                "step_details": [
+                                    {
+                                        "model_name": "gpt-5-mini",
+                                        "prompt_tokens": 10,
+                                        "completion_tokens": 5,
+                                        "total_tokens": 15,
+                                    }
+                                ],
+                            }
+                        },
+                    },
+                ],
             },
         )
 
@@ -279,6 +303,10 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(payload["trace_id"], "trace_123")
         self.assertEqual(payload["conversation_id"], "chat_123")
         self.assertEqual(payload["request_id"], "req_123")
+        self.assertEqual(payload["sampled"], True)
+        self.assertEqual(payload["user_id"], "user_123")
+        self.assertEqual(payload["payload"]["schema_version"], "telemetry-envelope.v1")
+        self.assertEqual(payload["payload"]["usage"]["total_tokens"], 15)
 
     def test_with_telemetry_simpleflow_emits_runtime_event(self) -> None:
         client = SimpleFlowClient(base_url="https://api.example")

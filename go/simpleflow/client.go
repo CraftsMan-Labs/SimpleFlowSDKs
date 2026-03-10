@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -327,8 +328,11 @@ func (c *Client) UpdateChatHistoryMessage(ctx context.Context, message ChatHisto
 
 type WriteEventFromWorkflowResultInput struct {
 	AgentID        string
+	OrganizationID string
+	UserID         string
 	EventType      string
 	WorkflowResult any
+	IncludeRaw     bool
 }
 
 func (c *Client) WriteEventFromWorkflowResult(ctx context.Context, input WriteEventFromWorkflowResultInput) error {
@@ -363,21 +367,339 @@ func (c *Client) WriteEventFromWorkflowResult(ctx context.Context, input WriteEv
 	if runID == "" {
 		runID = stringValue(normalizedResult, "run_id")
 	}
+	organizationID := firstNonEmpty(strings.TrimSpace(input.OrganizationID), stringValue(tenant, "organization_id"), stringValue(trace, "organization_id"), stringValue(normalizedResult, "organization_id"))
+	userID := firstNonEmpty(strings.TrimSpace(input.UserID), stringValue(tenant, "user_id"), stringValue(trace, "user_id"), stringValue(normalizedResult, "user_id"))
 	traceID := stringValue(telemetry, "trace_id")
 	sampled := boolPointerValue(telemetry, "sampled")
+	canonicalPayload := buildCanonicalTelemetryEnvelope(normalizedResult, agentID, organizationID, userID, runID, traceID, conversationID, requestID, sampled, input.IncludeRaw)
 
 	event := RuntimeEvent{
 		Type:           eventType,
 		AgentID:        agentID,
+		OrganizationID: organizationID,
+		UserID:         userID,
 		RunID:          runID,
 		ConversationID: conversationID,
 		RequestID:      requestID,
 		TraceID:        traceID,
 		Sampled:        sampled,
-		Payload:        normalizedResult,
+		Payload:        canonicalPayload,
 	}
 
 	return c.WriteEvent(ctx, event)
+}
+
+func buildCanonicalTelemetryEnvelope(
+	workflowResult map[string]any,
+	agentID string,
+	organizationID string,
+	userID string,
+	runID string,
+	traceID string,
+	conversationID string,
+	requestID string,
+	sampled *bool,
+	includeRaw bool,
+) map[string]any {
+	metadata := nestedMap(workflowResult, "metadata")
+	traceRoot := nestedMap(metadata, "trace")
+	telemetry := nestedMap(metadata, "telemetry")
+	events := listValue(workflowResult, "events")
+	eventCounts := countEventsByType(events)
+	nerdstats := extractNerdstats(workflowResult, events)
+	usage := buildUsage(nerdstats)
+	modelUsage := buildModelUsage(nerdstats)
+	toolUsage := buildToolUsage(eventCounts)
+
+	workflowStatus := firstNonEmpty(stringValue(workflowResult, "status"), "completed")
+	traceSampled := sampled
+	if traceSampled == nil {
+		traceSampled = boolPointerValue(telemetry, "sampled")
+	}
+	if traceSampled == nil {
+		traceSampled = boolPointer(true)
+	}
+
+	payload := map[string]any{
+		"schema_version": "telemetry-envelope.v1",
+		"identity": map[string]any{
+			"organization_id": strings.TrimSpace(organizationID),
+			"agent_id":        strings.TrimSpace(agentID),
+			"user_id":         strings.TrimSpace(userID),
+		},
+		"trace": map[string]any{
+			"trace_id":        firstNonEmpty(strings.TrimSpace(traceID), stringValue(telemetry, "trace_id")),
+			"span_id":         stringValue(traceRoot, "span_id"),
+			"tenant_id":       stringValue(traceRoot, "tenant_id"),
+			"conversation_id": strings.TrimSpace(conversationID),
+			"request_id":      strings.TrimSpace(requestID),
+			"run_id":          strings.TrimSpace(runID),
+			"sampled":         *traceSampled,
+		},
+		"workflow": map[string]any{
+			"workflow_id":      stringValue(workflowResult, "workflow_id"),
+			"terminal_node":    stringValue(workflowResult, "terminal_node"),
+			"status":           workflowStatus,
+			"total_elapsed_ms": numericValue(workflowResult, "total_elapsed_ms"),
+			"ttft_ms":          numericValue(nerdstats, "ttft_ms"),
+		},
+		"usage":        usage,
+		"model_usage":  modelUsage,
+		"tool_usage":   toolUsage,
+		"event_counts": eventCounts,
+	}
+
+	if len(nerdstats) > 0 {
+		payload["nerdstats"] = nerdstats
+	}
+	if includeRaw {
+		payload["raw"] = workflowResult
+	}
+
+	return payload
+}
+
+func extractNerdstats(workflowResult map[string]any, events []any) map[string]any {
+	metadata := nestedMap(workflowResult, "metadata")
+	if direct := nestedMap(metadata, "nerdstats"); len(direct) > 0 {
+		return direct
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		event, ok := events[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(stringAny(event["event_type"])) != "workflow_completed" {
+			continue
+		}
+		eventMetadata, ok := event["metadata"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if stats, ok := eventMetadata["nerdstats"].(map[string]any); ok {
+			return stats
+		}
+	}
+	return map[string]any{}
+}
+
+func buildUsage(nerdstats map[string]any) map[string]any {
+	return map[string]any{
+		"prompt_tokens":     firstNumericValue(nerdstats, "total_input_tokens", "prompt_tokens"),
+		"completion_tokens": firstNumericValue(nerdstats, "total_output_tokens", "completion_tokens"),
+		"total_tokens":      firstNumericValue(nerdstats, "total_tokens"),
+		"reasoning_tokens":  firstNumericValue(nerdstats, "total_reasoning_tokens", "reasoning_tokens"),
+		"ttft_ms":           firstNumericValue(nerdstats, "ttft_ms"),
+		"total_elapsed_ms":  firstNumericValue(nerdstats, "total_elapsed_ms"),
+		"tokens_per_second": firstNumericValue(nerdstats, "tokens_per_second"),
+	}
+}
+
+func buildModelUsage(nerdstats map[string]any) []map[string]any {
+	stepDetails, _ := nerdstats["step_details"].([]any)
+	totalsByModel := map[string]map[string]float64{}
+
+	for i := range stepDetails {
+		step, ok := stepDetails[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		modelName := strings.TrimSpace(stringAny(step["model_name"]))
+		if modelName == "" {
+			continue
+		}
+		bucket, ok := totalsByModel[modelName]
+		if !ok {
+			bucket = map[string]float64{"request_count": 0}
+			totalsByModel[modelName] = bucket
+		}
+		bucket["request_count"] += 1
+		bucket["prompt_tokens"] += floatNumericValue(step, "prompt_tokens")
+		bucket["completion_tokens"] += floatNumericValue(step, "completion_tokens")
+		bucket["total_tokens"] += floatNumericValue(step, "total_tokens")
+		bucket["reasoning_tokens"] += floatNumericValue(step, "reasoning_tokens")
+		bucket["elapsed_ms"] += floatNumericValue(step, "elapsed_ms")
+	}
+
+	if modelsByNode, ok := nerdstats["llm_node_models"].(map[string]any); ok {
+		for _, rawModel := range modelsByNode {
+			modelName := strings.TrimSpace(stringAny(rawModel))
+			if modelName == "" {
+				continue
+			}
+			if _, exists := totalsByModel[modelName]; !exists {
+				totalsByModel[modelName] = map[string]float64{"request_count": 0}
+			}
+		}
+	}
+
+	modelNames := make([]string, 0, len(totalsByModel))
+	for modelName := range totalsByModel {
+		modelNames = append(modelNames, modelName)
+	}
+	sort.Strings(modelNames)
+
+	rows := make([]map[string]any, 0, len(modelNames))
+	for i := range modelNames {
+		modelName := modelNames[i]
+		bucket := totalsByModel[modelName]
+		rows = append(rows, map[string]any{
+			"model":             modelName,
+			"request_count":     int64(bucket["request_count"]),
+			"prompt_tokens":     int64(bucket["prompt_tokens"]),
+			"completion_tokens": int64(bucket["completion_tokens"]),
+			"total_tokens":      int64(bucket["total_tokens"]),
+			"reasoning_tokens":  int64(bucket["reasoning_tokens"]),
+			"elapsed_ms":        int64(bucket["elapsed_ms"]),
+		})
+	}
+	return rows
+}
+
+func buildToolUsage(eventCounts map[string]int64) []map[string]any {
+	started := eventCounts["node_tool_start"]
+	completed := eventCounts["node_tool_completed"]
+	failed := eventCounts["node_tool_error"]
+	if started == 0 && completed == 0 && failed == 0 {
+		return []map[string]any{}
+	}
+	return []map[string]any{{
+		"tool":            "workflow_tools",
+		"started_count":   started,
+		"completed_count": completed,
+		"error_count":     failed,
+	}}
+}
+
+func countEventsByType(events []any) map[string]int64 {
+	counts := map[string]int64{}
+	for i := range events {
+		event, ok := events[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		eventType := strings.TrimSpace(stringAny(event["event_type"]))
+		if eventType == "" {
+			continue
+		}
+		counts[eventType] += 1
+	}
+	return counts
+}
+
+func listValue(root map[string]any, key string) []any {
+	raw, ok := root[key]
+	if !ok || raw == nil {
+		return []any{}
+	}
+	switch values := raw.(type) {
+	case []any:
+		return values
+	case []map[string]any:
+		list := make([]any, 0, len(values))
+		for i := range values {
+			list = append(list, values[i])
+		}
+		return list
+	default:
+		return []any{}
+	}
+}
+
+func stringAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+func firstNumericValue(root map[string]any, keys ...string) any {
+	for i := range keys {
+		if value, ok := numericValueWithOK(root, keys[i]); ok {
+			return value
+		}
+	}
+	return int64(0)
+}
+
+func numericValue(root map[string]any, key string) any {
+	value, _ := numericValueWithOK(root, key)
+	return value
+}
+
+func numericValueWithOK(root map[string]any, key string) (any, bool) {
+	raw, ok := root[key]
+	if !ok || raw == nil {
+		return int64(0), false
+	}
+	switch v := raw.(type) {
+	case int:
+		return int64(v), true
+	case int8:
+		return int64(v), true
+	case int16:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int64:
+		return v, true
+	case uint:
+		return int64(v), true
+	case uint8:
+		return int64(v), true
+	case uint16:
+		return int64(v), true
+	case uint32:
+		return int64(v), true
+	case uint64:
+		return int64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		return v, true
+	default:
+		return int64(0), false
+	}
+}
+
+func floatNumericValue(root map[string]any, key string) float64 {
+	raw, ok := root[key]
+	if !ok || raw == nil {
+		return 0
+	}
+	switch v := raw.(type) {
+	case int:
+		return float64(v)
+	case int8:
+		return float64(v)
+	case int16:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case uint:
+		return float64(v)
+	case uint8:
+		return float64(v)
+	case uint16:
+		return float64(v)
+	case uint32:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	case float32:
+		return float64(v)
+	case float64:
+		return v
+	default:
+		return 0
+	}
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body any) error {

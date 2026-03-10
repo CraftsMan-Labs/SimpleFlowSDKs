@@ -5,6 +5,7 @@ from hashlib import sha256
 from math import isfinite
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -87,6 +88,181 @@ def _extract_workflow_nerdstats(
         if isinstance(nerdstats, dict):
             return nerdstats
     return None
+
+
+def _extract_model_usage(nerdstats: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(nerdstats, dict):
+        return []
+
+    totals_by_model: dict[str, dict[str, float]] = {}
+    step_details = nerdstats.get("step_details")
+    if isinstance(step_details, list):
+        for step in step_details:
+            if not isinstance(step, dict):
+                continue
+            model_name = str(step.get("model_name", "")).strip()
+            if model_name == "":
+                continue
+            bucket = totals_by_model.setdefault(
+                model_name,
+                {
+                    "request_count": 0.0,
+                    "prompt_tokens": 0.0,
+                    "completion_tokens": 0.0,
+                    "total_tokens": 0.0,
+                    "reasoning_tokens": 0.0,
+                    "elapsed_ms": 0.0,
+                },
+            )
+            bucket["request_count"] += 1.0
+            bucket["prompt_tokens"] += float(step.get("prompt_tokens", 0) or 0)
+            bucket["completion_tokens"] += float(step.get("completion_tokens", 0) or 0)
+            bucket["total_tokens"] += float(step.get("total_tokens", 0) or 0)
+            bucket["reasoning_tokens"] += float(step.get("reasoning_tokens", 0) or 0)
+            bucket["elapsed_ms"] += float(step.get("elapsed_ms", 0) or 0)
+
+    llm_node_models = nerdstats.get("llm_node_models")
+    if isinstance(llm_node_models, dict):
+        for _, raw_model in llm_node_models.items():
+            model_name = str(raw_model).strip()
+            if model_name == "":
+                continue
+            totals_by_model.setdefault(
+                model_name,
+                {
+                    "request_count": 0.0,
+                    "prompt_tokens": 0.0,
+                    "completion_tokens": 0.0,
+                    "total_tokens": 0.0,
+                    "reasoning_tokens": 0.0,
+                    "elapsed_ms": 0.0,
+                },
+            )
+
+    model_usage: list[dict[str, Any]] = []
+    for model_name in sorted(totals_by_model.keys()):
+        bucket = totals_by_model[model_name]
+        model_usage.append(
+            {
+                "model": model_name,
+                "request_count": int(bucket["request_count"]),
+                "prompt_tokens": int(bucket["prompt_tokens"]),
+                "completion_tokens": int(bucket["completion_tokens"]),
+                "total_tokens": int(bucket["total_tokens"]),
+                "reasoning_tokens": int(bucket["reasoning_tokens"]),
+                "elapsed_ms": int(bucket["elapsed_ms"]),
+            }
+        )
+    return model_usage
+
+
+def _extract_tool_usage(event_counts: dict[str, int]) -> list[dict[str, Any]]:
+    started = int(event_counts.get("node_tool_start", 0))
+    completed = int(event_counts.get("node_tool_completed", 0))
+    errors = int(event_counts.get("node_tool_error", 0))
+    if started == 0 and completed == 0 and errors == 0:
+        return []
+    return [
+        {
+            "tool": "workflow_tools",
+            "started_count": started,
+            "completed_count": completed,
+            "error_count": errors,
+        }
+    ]
+
+
+def _build_usage_summary(nerdstats: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(nerdstats, dict):
+        return {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "reasoning_tokens": 0,
+            "ttft_ms": 0,
+            "total_elapsed_ms": 0,
+            "tokens_per_second": 0,
+        }
+
+    return {
+        "prompt_tokens": int(
+            nerdstats.get("total_input_tokens", nerdstats.get("prompt_tokens", 0)) or 0
+        ),
+        "completion_tokens": int(
+            nerdstats.get("total_output_tokens", nerdstats.get("completion_tokens", 0))
+            or 0
+        ),
+        "total_tokens": int(nerdstats.get("total_tokens", 0) or 0),
+        "reasoning_tokens": int(
+            nerdstats.get(
+                "total_reasoning_tokens", nerdstats.get("reasoning_tokens", 0)
+            )
+            or 0
+        ),
+        "ttft_ms": int(nerdstats.get("ttft_ms", 0) or 0),
+        "total_elapsed_ms": int(nerdstats.get("total_elapsed_ms", 0) or 0),
+        "tokens_per_second": nerdstats.get("tokens_per_second", 0) or 0,
+    }
+
+
+def _build_canonical_telemetry_envelope(
+    *,
+    workflow_result: dict[str, Any],
+    agent_id: str,
+    organization_id: str,
+    user_id: str,
+    run_id: str,
+    trace_id: str,
+    conversation_id: str,
+    request_id: str,
+    sampled: bool,
+    include_raw: bool,
+) -> dict[str, Any]:
+    metadata = workflow_result.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    trace_meta = metadata_dict.get("trace")
+    trace_dict = trace_meta if isinstance(trace_meta, dict) else {}
+
+    event_counts = _count_workflow_events_by_type(workflow_result)
+    nerdstats = _extract_workflow_nerdstats(workflow_result)
+    usage = _build_usage_summary(nerdstats)
+    model_usage = _extract_model_usage(nerdstats)
+    tool_usage = _extract_tool_usage(event_counts)
+
+    payload: dict[str, Any] = {
+        "schema_version": "telemetry-envelope.v1",
+        "identity": {
+            "organization_id": organization_id,
+            "agent_id": agent_id,
+            "user_id": user_id,
+        },
+        "trace": {
+            "trace_id": trace_id,
+            "span_id": str(trace_dict.get("span_id", "")).strip(),
+            "tenant_id": str(trace_dict.get("tenant_id", "")).strip(),
+            "conversation_id": conversation_id,
+            "request_id": request_id,
+            "run_id": run_id,
+            "sampled": sampled,
+        },
+        "workflow": {
+            "workflow_id": str(workflow_result.get("workflow_id", "")).strip(),
+            "terminal_node": str(workflow_result.get("terminal_node", "")).strip(),
+            "status": str(workflow_result.get("status", "")).strip() or "completed",
+            "total_elapsed_ms": int(workflow_result.get("total_elapsed_ms", 0) or 0),
+            "ttft_ms": int(usage.get("ttft_ms", 0) or 0),
+        },
+        "usage": usage,
+        "model_usage": model_usage,
+        "tool_usage": tool_usage,
+        "event_counts": event_counts,
+    }
+
+    if isinstance(nerdstats, dict):
+        payload["nerdstats"] = nerdstats
+    if include_raw:
+        payload["raw"] = workflow_result
+    return payload
 
 
 def _build_trace_url(
@@ -194,7 +370,13 @@ class SimpleFlowClient:
         agent_version: str,
         auth_token: str | None = None,
     ) -> list[dict[str, Any]]:
-        path = f"{self._runtime_register_path}?agent_id={agent_id}&agent_version={agent_version}"
+        path = self._path_with_query(
+            self._runtime_register_path,
+            {
+                "agent_id": agent_id,
+                "agent_version": agent_version,
+            },
+        )
         response = self._get(path, auth_token=auth_token)
         registrations = response.get("registrations")
         if isinstance(registrations, list):
@@ -313,11 +495,13 @@ class SimpleFlowClient:
         allowed_keys = {
             "agent_id",
             "organization_id",
+            "user_id",
             "run_id",
             "event_type",
             "trace_id",
             "conversation_id",
             "request_id",
+            "sampled",
             "payload",
         }
         body = {key: value for key, value in body.items() if key in allowed_keys}
@@ -386,7 +570,15 @@ class SimpleFlowClient:
         limit: int = 50,
         auth_token: str | None = None,
     ) -> list[dict[str, Any]]:
-        path = f"{self._chat_history_path}?agent_id={agent_id}&chat_id={chat_id}&user_id={user_id}&limit={limit}"
+        path = self._path_with_query(
+            self._chat_history_path,
+            {
+                "agent_id": agent_id,
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "limit": limit,
+            },
+        )
         response = self._get(path, auth_token=auth_token)
         messages = response.get("messages")
         if isinstance(messages, list):
@@ -402,7 +594,15 @@ class SimpleFlowClient:
         limit: int = 50,
         auth_token: str | None = None,
     ) -> list[dict[str, Any]]:
-        path = f"{self._chat_sessions_path}?agent_id={agent_id}&user_id={user_id}&status={status}&limit={limit}"
+        path = self._path_with_query(
+            self._chat_sessions_path,
+            {
+                "agent_id": agent_id,
+                "user_id": user_id,
+                "status": status,
+                "limit": limit,
+            },
+        )
         response = self._get(path, auth_token=auth_token)
         sessions = response.get("sessions")
         if isinstance(sessions, list):
@@ -444,6 +644,9 @@ class SimpleFlowClient:
         agent_id: str,
         workflow_result: Any,
         event_type: str = "runtime.workflow.completed",
+        organization_id: str = "",
+        user_id: str = "",
+        include_raw: bool = False,
     ) -> None:
         normalized_result = _normalize_payload(workflow_result)
         metadata = normalized_result.get("metadata")
@@ -464,20 +667,46 @@ class SimpleFlowClient:
         run_id = str(tenant_dict.get("run_id", "")).strip()
         if run_id == "":
             run_id = str(normalized_result.get("run_id", "")).strip()
+        resolved_organization_id = (
+            organization_id.strip()
+            or str(tenant_dict.get("organization_id", "")).strip()
+            or str(trace_dict.get("organization_id", "")).strip()
+            or str(normalized_result.get("organization_id", "")).strip()
+        )
+        resolved_user_id = (
+            user_id.strip()
+            or str(tenant_dict.get("user_id", "")).strip()
+            or str(trace_dict.get("user_id", "")).strip()
+            or str(normalized_result.get("user_id", "")).strip()
+        )
         trace_id = str(telemetry_dict.get("trace_id", "")).strip()
         sampled_value = telemetry_dict.get("sampled")
         sampled = sampled_value if isinstance(sampled_value, bool) else None
+        canonical_payload = _build_canonical_telemetry_envelope(
+            workflow_result=normalized_result,
+            agent_id=agent_id,
+            organization_id=resolved_organization_id,
+            user_id=resolved_user_id,
+            run_id=run_id,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            sampled=sampled if isinstance(sampled, bool) else True,
+            include_raw=include_raw,
+        )
 
         self.write_event(
             {
                 "event_type": event_type,
                 "agent_id": agent_id,
+                "organization_id": resolved_organization_id,
+                "user_id": resolved_user_id,
                 "run_id": run_id,
                 "conversation_id": conversation_id,
                 "request_id": request_id,
                 "trace_id": trace_id,
                 "sampled": sampled,
-                "payload": normalized_result,
+                "payload": canonical_payload,
             }
         )
 
@@ -745,6 +974,12 @@ class SimpleFlowClient:
         if path_template.endswith("/"):
             return f"{path_template}{trimmed_id}"
         return f"{path_template}/{trimmed_id}"
+
+    def _path_with_query(self, path: str, query: dict[str, Any]) -> str:
+        encoded = urlencode(query)
+        if encoded == "":
+            return path
+        return f"{path}?{encoded}"
 
     def _raise_request_error(self, *, path: str, status_code: int, body: str) -> None:
         detail = body.strip()

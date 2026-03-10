@@ -26,7 +26,9 @@ func TestWriteEventFromWorkflowResult(t *testing.T) {
 	}
 
 	workflowResult := map[string]any{
-		"run_id": "run_123",
+		"run_id":        "run_123",
+		"workflow_id":   "email-chat-draft-or-clarify",
+		"terminal_node": "ask_for_scenario",
 		"metadata": map[string]any{
 			"telemetry": map[string]any{
 				"trace_id": "trace_123",
@@ -36,6 +38,26 @@ func TestWriteEventFromWorkflowResult(t *testing.T) {
 				"tenant": map[string]any{
 					"conversation_id": "chat_123",
 					"request_id":      "req_123",
+					"user_id":         "user_123",
+				},
+			},
+		},
+		"events": []map[string]any{
+			{"event_type": "workflow_started"},
+			{
+				"event_type": "workflow_completed",
+				"metadata": map[string]any{
+					"nerdstats": map[string]any{
+						"total_input_tokens":  10,
+						"total_output_tokens": 5,
+						"total_tokens":        15,
+						"step_details": []map[string]any{{
+							"model_name":        "gpt-5-mini",
+							"prompt_tokens":     10,
+							"completion_tokens": 5,
+							"total_tokens":      15,
+						}},
+					},
 				},
 			},
 		},
@@ -57,6 +79,20 @@ func TestWriteEventFromWorkflowResult(t *testing.T) {
 	}
 	if got := captured["conversation_id"]; got != "chat_123" {
 		t.Fatalf("unexpected conversation_id: %v", got)
+	}
+	payload, ok := captured["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload map, got %T", captured["payload"])
+	}
+	if got := payload["schema_version"]; got != "telemetry-envelope.v1" {
+		t.Fatalf("unexpected schema_version: %v", got)
+	}
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected usage map, got %T", payload["usage"])
+	}
+	if got := usage["total_tokens"]; got != float64(15) {
+		t.Fatalf("unexpected usage.total_tokens: %v", got)
 	}
 }
 
