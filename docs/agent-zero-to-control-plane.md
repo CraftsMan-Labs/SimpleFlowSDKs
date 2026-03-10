@@ -73,6 +73,107 @@ npm run invoke-control-plane
 
 This sends a contract-compliant invoke request through control plane (`/v1/runtime/invoke`) and prints the runtime response.
 
+## Reference code snippets
+
+These snippets are the exact patterns used in `examples/simpleflow-hr-agent`.
+
+### npm scripts
+
+From `examples/simpleflow-hr-agent/package.json`:
+
+```json
+{
+  "scripts": {
+    "sync-workflow": "node scripts/sync-workflow.js",
+    "register-runtime": "node scripts/register-runtime.js",
+    "run-local-agent": "node scripts/run-local-agent.js",
+    "invoke-control-plane": "node scripts/invoke-control-plane.js"
+  }
+}
+```
+
+### Register and activate runtime
+
+From `examples/simpleflow-hr-agent/scripts/register-runtime.js`:
+
+```js
+const client = new SimpleFlowClient({
+  baseUrl: process.env.SIMPLEFLOW_BASE_URL,
+  apiToken: process.env.SIMPLEFLOW_API_TOKEN,
+})
+
+const registration = {
+  agent_id: process.env.SIMPLEFLOW_AGENT_ID || "hr-agent-runtime",
+  agent_version: process.env.SIMPLEFLOW_AGENT_VERSION || "v1",
+  execution_mode: "remote_runtime",
+  endpoint_url: process.env.RUNTIME_ENDPOINT_URL,
+  auth_mode: process.env.RUNTIME_AUTH_MODE || "jwt",
+  capabilities: ["chat", "webhook", "queue"],
+  runtime_id: process.env.SIMPLEFLOW_RUNTIME_ID || "runtime_local_hr_agent",
+}
+
+const result = await client.ensureRuntimeRegistrationActive({ registration })
+```
+
+### Run local workflow and emit telemetry
+
+From `examples/simpleflow-hr-agent/scripts/run-local-agent.js`:
+
+```js
+const workflowResult = await agents.runWorkflowYamlWithEvents(
+  "./workflows/email-chat-draft-or-clarify.yaml",
+  { input: { messages: [{ role: "user", content: process.env.USER_MESSAGE }] } },
+  {
+    trace: {
+      tenant: {
+        organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
+        user_id: process.env.SIMPLEFLOW_USER_ID,
+        conversation_id: "chat_local_demo",
+        request_id: "req_local_demo",
+        run_id: "run_local_demo",
+      },
+    },
+  }
+)
+
+await simpleflow.writeEventFromWorkflowResult({
+  agentId: process.env.SIMPLEFLOW_AGENT_ID || "hr-agent-runtime",
+  organizationId: process.env.SIMPLEFLOW_ORGANIZATION_ID,
+  userId: process.env.SIMPLEFLOW_USER_ID,
+  workflowResult,
+  eventType: "runtime.workflow.completed",
+})
+```
+
+### Invoke runtime through control plane
+
+From `examples/simpleflow-hr-agent/scripts/invoke-control-plane.js`:
+
+```js
+const response = await client.invoke({
+  schema_version: "v1",
+  run_id: "run_local_demo",
+  agent_id: process.env.SIMPLEFLOW_AGENT_ID || "hr-agent-runtime",
+  agent_version: process.env.SIMPLEFLOW_AGENT_VERSION || "v1",
+  mode: "realtime",
+  trace: { trace_id: "trace_local", span_id: "span_local", tenant_id: process.env.SIMPLEFLOW_ORGANIZATION_ID },
+  input: { message: process.env.USER_MESSAGE },
+  deadline_ms: 120000,
+  idempotency_key: "invoke_local_demo",
+})
+```
+
+### Sync workflow from template source
+
+From `examples/simpleflow-hr-agent/scripts/sync-workflow.js`:
+
+```js
+const sourceRoot = process.env.WORKFLOW_SOURCE_ROOT || "/home/rishub/Desktop/projects/rishub/SimpleFlowTestTempaltes/SimpleFlowHRAgentSystem/workflows"
+const sourceFile = path.resolve(sourceRoot, "email-chat-draft-or-clarify.yaml")
+const targetFile = path.resolve(__dirname, "..", "workflows", "email-chat-draft-or-clarify.yaml")
+fs.copyFileSync(sourceFile, targetFile)
+```
+
 ## Optional input modes
 
 - `USER_MESSAGE` in `.env` for single-turn runs.
