@@ -51,4 +51,6 @@ Use the root `Makefile` for common workflows:
 - `make publish-node-doppler` uploads Node package with Doppler + `npm publish`.
 - `make publish-all` publishes both Python and Node SDK packages.
 - `make version-patch` / `make version-minor` / `make version-major` bump Python + Node versions together.
+- `make version-patch AUTO_GIT=1` (or minor/major/set) auto-commits, tags, and pushes the release.
+- `make release-patch` / `make release-minor` / `make release-major` bump version and auto commit/tag/push in one command.
 - `make publish-go-tag VERSION=vX.Y.Z` creates and pushes a Go release tag.

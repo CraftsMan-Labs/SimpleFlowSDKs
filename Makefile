@@ -1,4 +1,4 @@
-.PHONY: help test test-go test-python test-node lint-go fmt-go build-go build-python build-node docs-dev docs-build docs-preview check-publish check-publish-all publish-python-dry publish-python publish-node-dry publish-node publish-node-doppler npm-login publish-all publish-go-tag version-get version-sync version-next-patch version-next-minor version-next-major version-patch version-minor version-major version-set tag-release
+.PHONY: help test test-go test-python test-node lint-go fmt-go build-go build-python build-node docs-dev docs-build docs-preview check-publish check-publish-all publish-python-dry publish-python publish-node-dry publish-node publish-node-doppler npm-login publish-all publish-go-tag version-get version-sync version-next-patch version-next-minor version-next-major version-patch version-minor version-major version-set tag-release release-commit-tag-push release-patch release-minor release-major release-set
 
 GO_SDK_DIR ?= go/simpleflow
 PYTHON_SDK_DIR ?= python
@@ -13,6 +13,7 @@ NODE_PACKAGE_JSON ?= $(NODE_SDK_DIR)/package.json
 VERSION ?=
 DOPPLER_RUN ?= doppler run --command
 NPM_OTP ?=
+AUTO_GIT ?= 0
 
 help:
 	@echo "SimpleFlowSDKs developer commands"
@@ -53,6 +54,10 @@ help:
 	@echo "  make version-minor       - Bump minor version across Python + Node"
 	@echo "  make version-major       - Bump major version across Python + Node"
 	@echo "  make version-set VERSION=X.Y.Z - Set version across Python + Node"
+	@echo "  make release-patch       - Bump patch, commit, tag, and push"
+	@echo "  make release-minor       - Bump minor, commit, tag, and push"
+	@echo "  make release-major       - Bump major, commit, tag, and push"
+	@echo "  make release-set VERSION=X.Y.Z - Set version, commit, tag, and push"
 	@echo "  make tag-release         - Create git tag v<current-version>"
 	@echo "  make publish-go-tag VERSION=vX.Y.Z - Tag and push for Go module release"
 
@@ -78,6 +83,7 @@ build-go:
 
 build-python:
 	rm -rf "$(PYTHON_BUILD_TMP)"
+	rm -rf "$(PYTHON_DIST_DIR)"
 	mkdir -p "$(PYTHON_BUILD_TMP)"
 	rsync -a --delete --exclude 'dist' --exclude '*.egg-info' "$(PYTHON_SDK_DIR)/" "$(PYTHON_BUILD_TMP)/"
 	cd "$(PYTHON_BUILD_TMP)" && uv build
@@ -108,9 +114,12 @@ publish-python-dry: build-python
 publish-python: build-python
 	$(DOPPLER_RUN) 'TOKEN_SOURCE=$$(if [ -n "$$V_PUBLISH_TOKEN" ]; then echo V_PUBLISH_TOKEN; elif [ -n "$$UV_PUBLISH_TOKEN" ]; then echo UV_PUBLISH_TOKEN; else echo NONE; fi); \
 	TOKEN_VALUE=$${V_PUBLISH_TOKEN:-$${UV_PUBLISH_TOKEN}}; \
+	VERSION_VALUE=$$(awk -F '"' '/^version = / {print $$2; exit}' "$(PYTHON_PYPROJECT)"); \
+	set -- "$(PYTHON_DIST_DIR)"/simpleflow_sdk-$$VERSION_VALUE*; \
+	if [ "$$1" = "$(PYTHON_DIST_DIR)/simpleflow_sdk-$$VERSION_VALUE*" ]; then echo "[publish-python] missing dist artifacts for version $$VERSION_VALUE"; exit 1; fi; \
 	echo "[publish-python] token_source=$$TOKEN_SOURCE token_len=$${#TOKEN_VALUE}"; \
 	if [ -z "$$TOKEN_VALUE" ]; then echo "[publish-python] missing V_PUBLISH_TOKEN/UV_PUBLISH_TOKEN"; exit 1; fi; \
-	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish "$(PYTHON_DIST_DIR)"/*'
+	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish "$$@"'
 
 publish-node-dry:
 	cd "$(NODE_SDK_DIR)" && npm publish --access public --dry-run
@@ -168,12 +177,15 @@ version-next-major:
 
 version-patch:
 	@$(MAKE) --no-print-directory version-set VERSION=$$($(MAKE) --no-print-directory version-next-patch)
+	@if [ "$(AUTO_GIT)" = "1" ]; then $(MAKE) --no-print-directory release-commit-tag-push; fi
 
 version-minor:
 	@$(MAKE) --no-print-directory version-set VERSION=$$($(MAKE) --no-print-directory version-next-minor)
+	@if [ "$(AUTO_GIT)" = "1" ]; then $(MAKE) --no-print-directory release-commit-tag-push; fi
 
 version-major:
 	@$(MAKE) --no-print-directory version-set VERSION=$$($(MAKE) --no-print-directory version-next-major)
+	@if [ "$(AUTO_GIT)" = "1" ]; then $(MAKE) --no-print-directory release-commit-tag-push; fi
 
 version-set:
 	@if [ -z "$(VERSION)" ]; then \
@@ -183,6 +195,40 @@ version-set:
 	@sed -i.bak 's/^version = ".*"/version = "$(VERSION)"/' "$(PYTHON_PYPROJECT)" && rm -f "$(PYTHON_PYPROJECT).bak"
 	@node -e "const fs=require('fs'); const p=process.argv[1]; const v=process.argv[2]; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.version=v; fs.writeFileSync(p, JSON.stringify(j, null, 2)+'\n');" "$(NODE_PACKAGE_JSON)" "$(VERSION)"
 	@echo "Updated versions -> Python + Node = $(VERSION)"
+	@if [ "$(AUTO_GIT)" = "1" ]; then $(MAKE) --no-print-directory release-commit-tag-push; fi
+
+release-commit-tag-push:
+	@set -e; \
+	version=$$($(MAKE) --no-print-directory version-get); \
+	if [ -n "$$(git status --short --untracked-files=no | awk '$$2 != "$(PYTHON_PYPROJECT)" && $$2 != "$(NODE_PACKAGE_JSON)" {print}')" ]; then \
+		echo "Refusing auto release: unrelated tracked changes detected"; \
+		exit 1; \
+	fi; \
+	if git diff --quiet -- "$(PYTHON_PYPROJECT)" "$(NODE_PACKAGE_JSON)" && git diff --cached --quiet -- "$(PYTHON_PYPROJECT)" "$(NODE_PACKAGE_JSON)"; then \
+		echo "No version changes to commit"; \
+		exit 1; \
+	fi; \
+	git add "$(PYTHON_PYPROJECT)" "$(NODE_PACKAGE_JSON)"; \
+	git commit -m "chore(release): bump sdk version to $$version"; \
+	if git rev-parse "v$$version" >/dev/null 2>&1; then \
+		echo "Tag v$$version already exists"; \
+		exit 1; \
+	fi; \
+	git tag -a "v$$version" -m "Release v$$version"; \
+	git push origin HEAD; \
+	git push origin "v$$version"
+
+release-patch:
+	@$(MAKE) --no-print-directory version-patch AUTO_GIT=1
+
+release-minor:
+	@$(MAKE) --no-print-directory version-minor AUTO_GIT=1
+
+release-major:
+	@$(MAKE) --no-print-directory version-major AUTO_GIT=1
+
+release-set:
+	@$(MAKE) --no-print-directory version-set VERSION=$(VERSION) AUTO_GIT=1
 
 tag-release:
 	@version=$$($(MAKE) --no-print-directory version-get); \
