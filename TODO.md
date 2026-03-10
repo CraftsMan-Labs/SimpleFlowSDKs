@@ -1,47 +1,45 @@
 # TODO
 
-## Parent Task: SimpleFlow SDK foundation (Go + Python)
+## Parent Task: Canonical telemetry platform refactor (SDKs + Control Plane)
 
-- Status: completed
-- Why: establish SDK boundaries and DX so SimpleAgents integrations can adopt a stable platform contract.
-- Expected outcome: both SDKs provide equivalent control-plane/runtime APIs and telemetry bridge behavior.
+- Status: in_progress
+- Why: replace ad-hoc telemetry mapping with a single canonical contract and analytics-grade ingestion model while system is still in dev.
+- Expected outcome: deterministic, language-parity telemetry with reliable usage/cost analytics by day, model, user, conversation, and tool.
 
 ### Subtasks
 
 1. Status: completed
-   - Add control-plane and runtime APIs (`register_runtime`, `invoke`, `write_event`, `write_chat_message`, `publish_queue_contract`).
+   - Define and freeze `TelemetryEnvelopeV1` JSON schema as the single telemetry contract across SDKs and control plane.
 2. Status: completed
-   - Add workflow-result bridge API (`write_event_from_workflow_result`) that maps trace metadata fields.
+   - Add canonical workflow-result normalizer in SDKs producing `identity`, `trace`, `workflow`, `usage`, `model_usage`, `tool_usage`, `event_counts`, and optional `raw`.
 3. Status: completed
-   - Add telemetry bridge (`with_telemetry(...).emit_span(...)`) with `simpleflow` and `otlp` modes.
+   - Refactor Go SDK telemetry and workflow bridge APIs to emit only canonical envelope.
 4. Status: completed
-   - Add tests for runtime-event bridge behavior and telemetry sampling/emit behavior.
+   - Refactor Python SDK telemetry and workflow bridge APIs to emit only canonical envelope.
 5. Status: completed
-   - Copy `.opencode` guidance folder from SimpleFlow to keep shared agent workflows available here.
-6. Status: completed
-   - Update repository and language docs to reflect current SDK interfaces.
+   - Add Node SDK with parity APIs (`writeEvent`, `writeChatMessage`, `publishQueueContract`, workflow bridges, telemetry bridge).
+6. Status: in_progress
+   - Enforce strict correlation requirements (`organization_id`, `agent_id`, `user_id`, `conversation_id`, `request_id`, `run_id`, `trace_id`) and deterministic sampling parity across all SDKs.
+7. Status: pending
+   - Add idempotency defaults and retry-safe behavior in all runtime write helpers.
+8. Status: in_progress
+   - Refactor control-plane ingestion to parse canonical envelope into normalized analytics facts (not query-time raw JSON extraction).
+9. Status: pending
+   - Add analytics fact tables/materialized views for daily workflow/model/user/conversation/tool usage.
+10. Status: pending
+    - Add pricing model and cost computation pipeline (input/output/reasoning token rates with effective-date versioning).
+11. Status: in_progress
+   - Expand analytics API (`/v1/control-plane/analytics/overview`) with model/day/user/conversation/tool breakdowns and cost metrics.
+12. Status: pending
+    - Update frontend analytics page to expose new breakdowns, filters, and cost views.
+13. Status: in_progress
+   - Add cross-language contract tests, ingestion-to-analytics integration tests, and load tests for runtime write endpoints.
+14. Status: in_progress
+   - Update compatibility matrix and docs to reflect canonical telemetry contract and migration completion.
 
 ## Technical Notes
 
-- `sample_rate` is validated as finite and in the inclusive range `0.0..1.0`.
-- Sampling decision for telemetry spans is deterministic from `trace_id`.
-- `write_event_from_workflow_result(...)` extracts `metadata.telemetry` and `metadata.trace.tenant` when available.
-
-## Parent Task: SDK trust/lifecycle parity updates (Go + Python)
-
-- Status: completed
-- Why: align runtime trust configuration and lifecycle endpoint helpers across SDKs for consistent remote runtime integration behavior.
-- Expected outcome: Go and Python SDKs both support shared-key/asymmetric verification expectations and lifecycle helper methods with test coverage.
-
-### Subtasks
-
-1. Status: completed
-   - Add Go invoke token verifier shared-key HS256 mode while preserving existing JWKS/asymmetric verification.
-2. Status: completed
-   - Add Go + Python runtime registration lifecycle helpers for activate/deactivate/validate endpoints.
-3. Status: completed
-   - Clarify Python verifier usage for HS256 and RS256 and add coverage for shared-key flows.
-4. Status: completed
-   - Update SDK docs/READMEs for new trust and lifecycle APIs.
-5. Status: completed
-   - Run Go and Python test suites.
+- No legacy compatibility layer: canonical contract is source of truth.
+- Keep event-log + normalized-facts hybrid architecture for auditability and fast analytics.
+- Sampling must be deterministic and equivalent across Go/Python/Node implementations.
+- Control-plane analytics should read normalized facts by default; raw payload is debug-only.
