@@ -1,45 +1,55 @@
 # TODO
 
-## Parent Task: Canonical telemetry platform refactor (SDKs + Control Plane)
+## Parent Task: Align SimpleFlow telemetry with latest SimpleAgents nerdstats
 
-- Status: in_progress
-- Why: replace ad-hoc telemetry mapping with a single canonical contract and analytics-grade ingestion model while system is still in dev.
-- Expected outcome: deterministic, language-parity telemetry with reliable usage/cost analytics by day, model, user, conversation, and tool.
+- Status: completed
+- Why: SimpleAgents now emits richer nerdstats metadata and we need canonical, lossless control-plane ingestion.
+- Decision: when token metrics are unavailable, send token usage values as `null` (not `0`) and include explicit availability/source signals.
 
 ### Subtasks
 
 1. Status: completed
-   - Define and freeze `TelemetryEnvelopeV1` JSON schema as the single telemetry contract across SDKs and control plane.
+   - Expand nerdstats extraction source order in all SDKs (Node/Python/Go):
+     - `workflow_result.nerdstats`
+     - `workflow_result.metadata.nerdstats`
+     - latest `workflow_completed.metadata.nerdstats`
+
 2. Status: completed
-   - Add canonical workflow-result normalizer in SDKs producing `identity`, `trace`, `workflow`, `usage`, `model_usage`, `tool_usage`, `event_counts`, and optional `raw`.
+   - Fix Python parity gap by checking direct `workflow_result.metadata.nerdstats` before event scanning.
+
 3. Status: completed
-   - Refactor Go SDK telemetry and workflow bridge APIs to emit only canonical envelope.
+   - Update usage normalization in Node/Python/Go so unavailable token metrics are `null` instead of `0`.
+
 4. Status: completed
-   - Refactor Python SDK telemetry and workflow bridge APIs to emit only canonical envelope.
+   - Extend canonical envelope usage section with nerdstats availability semantics:
+     - `token_metrics_available`
+     - `token_metrics_source`
+     - `llm_nodes_without_usage`
+
 5. Status: completed
-   - Add Node SDK with parity APIs (`writeEvent`, `writeChatMessage`, `publishQueueContract`, workflow bridges, telemetry bridge).
-6. Status: in_progress
-   - Enforce strict correlation requirements (`organization_id`, `agent_id`, `user_id`, `conversation_id`, `request_id`, `run_id`, `trace_id`) and deterministic sampling parity across all SDKs.
-7. Status: pending
-   - Add idempotency defaults and retry-safe behavior in all runtime write helpers.
-8. Status: in_progress
-   - Refactor control-plane ingestion to parse canonical envelope into normalized analytics facts (not query-time raw JSON extraction).
-9. Status: pending
-   - Add analytics fact tables/materialized views for daily workflow/model/user/conversation/tool usage.
-10. Status: pending
-    - Add pricing model and cost computation pipeline (input/output/reasoning token rates with effective-date versioning).
-11. Status: in_progress
-   - Expand analytics API (`/v1/control-plane/analytics/overview`) with model/day/user/conversation/tool breakdowns and cost metrics.
-12. Status: pending
-    - Update frontend analytics page to expose new breakdowns, filters, and cost views.
-13. Status: in_progress
-   - Add cross-language contract tests, ingestion-to-analytics integration tests, and load tests for runtime write endpoints.
-14. Status: in_progress
-   - Update compatibility matrix and docs to reflect canonical telemetry contract and migration completion.
+   - Keep existing `payload.nerdstats` passthrough intact for deep diagnostics.
 
-## Technical Notes
+6. Status: completed
+   - Update telemetry docs/spec to reflect nullable usage totals and availability/source fields.
 
-- No legacy compatibility layer: canonical contract is source of truth.
-- Keep event-log + normalized-facts hybrid architecture for auditability and fast analytics.
-- Sampling must be deterministic and equivalent across Go/Python/Node implementations.
-- Control-plane analytics should read normalized facts by default; raw payload is debug-only.
+7. Status: completed
+   - Add Node regression tests for:
+     - top-level nerdstats extraction
+     - metadata nerdstats extraction
+     - nullable usage totals when unavailable
+     - `total_reasoning_tokens` mapping
+
+8. Status: completed
+   - Add Python regression tests for:
+     - direct metadata nerdstats extraction parity
+     - nullable usage totals when unavailable
+     - `total_reasoning_tokens` mapping
+
+9. Status: completed
+   - Add Go regression tests for:
+     - top-level nerdstats extraction
+     - nullable usage totals when unavailable
+     - `total_reasoning_tokens` mapping
+
+10. Status: completed
+    - Run cross-language test suite and verify parity for canonical telemetry envelope output.
