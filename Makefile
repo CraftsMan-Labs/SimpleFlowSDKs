@@ -113,14 +113,20 @@ publish-python-dry: build-python
 	@echo "Python package built in $(PYTHON_DIST_DIR)"
 
 publish-python: build-python
-	$(DOPPLER_RUN) 'TOKEN_SOURCE=$$(if [ -n "$$V_PUBLISH_TOKEN" ]; then echo V_PUBLISH_TOKEN; elif [ -n "$$UV_PUBLISH_TOKEN" ]; then echo UV_PUBLISH_TOKEN; else echo NONE; fi); \
-	TOKEN_VALUE=$${V_PUBLISH_TOKEN:-$${UV_PUBLISH_TOKEN}}; \
+	@set -e; \
 	VERSION_VALUE=$$($(MAKE) --no-print-directory version-get); \
 	set -- "$(PYTHON_DIST_DIR)"/simpleflow_sdk-$$VERSION_VALUE*; \
 	if [ "$$1" = "$(PYTHON_DIST_DIR)/simpleflow_sdk-$$VERSION_VALUE*" ]; then echo "[publish-python] missing dist artifacts for version $$VERSION_VALUE"; exit 1; fi; \
+	FILES_TO_PUBLISH=$$(python3 -c 'import json, os, sys, urllib.request; v=sys.argv[1]; files=sys.argv[2:]; data=json.load(urllib.request.urlopen("https://pypi.org/pypi/simpleflow-sdk/json", timeout=15)); existing={item.get("filename") for item in data.get("releases", {}).get(v, []) if item.get("filename")}; print(" ".join([path for path in files if os.path.basename(path) not in existing]))' "$$VERSION_VALUE" "$$@"); \
+	if [ -z "$$FILES_TO_PUBLISH" ]; then \
+		echo "[publish-python] all artifacts for $$VERSION_VALUE are already on index; skipping upload"; \
+		exit 0; \
+	fi; \
+	FILES_TO_PUBLISH="$$FILES_TO_PUBLISH" $(DOPPLER_RUN) 'TOKEN_SOURCE=$$(if [ -n "$$V_PUBLISH_TOKEN" ]; then echo V_PUBLISH_TOKEN; elif [ -n "$$UV_PUBLISH_TOKEN" ]; then echo UV_PUBLISH_TOKEN; else echo NONE; fi); \
+	TOKEN_VALUE=$${V_PUBLISH_TOKEN:-$${UV_PUBLISH_TOKEN}}; \
 	echo "[publish-python] token_source=$$TOKEN_SOURCE token_len=$${#TOKEN_VALUE}"; \
 	if [ -z "$$TOKEN_VALUE" ]; then echo "[publish-python] missing V_PUBLISH_TOKEN/UV_PUBLISH_TOKEN"; exit 1; fi; \
-	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish --check-url "$${UV_PUBLISH_CHECK_URL:-$(PUBLISH_CHECK_URL)}" "$$@"'
+	UV_PUBLISH_TOKEN=$$TOKEN_VALUE uv publish --check-url "$${UV_PUBLISH_CHECK_URL:-$(PUBLISH_CHECK_URL)}" $$FILES_TO_PUBLISH'
 
 publish-node-dry:
 	cd "$(NODE_SDK_DIR)" && npm publish --access public --dry-run

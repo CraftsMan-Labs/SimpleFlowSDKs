@@ -34,7 +34,7 @@ make publish-python
 
 `publish-python` now uploads only artifacts matching the current version in `python/pyproject.toml`, which avoids stale files in `python/dist` from blocking uploads.
 
-It also uses `uv publish --check-url` so already-published files are skipped instead of failing the whole release. Override with `UV_PUBLISH_CHECK_URL=...` if needed.
+It queries PyPI for filenames already published for that version and skips them before upload, so reruns do not fail on existing files. It also uses `uv publish --check-url`; override with `UV_PUBLISH_CHECK_URL=...` if needed.
 
 Node:
 
