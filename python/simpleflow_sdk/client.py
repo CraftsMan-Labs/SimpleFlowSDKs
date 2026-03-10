@@ -72,6 +72,16 @@ def _count_workflow_events_by_type(workflow_result: dict[str, Any]) -> dict[str,
 def _extract_workflow_nerdstats(
     workflow_result: dict[str, Any],
 ) -> dict[str, Any] | None:
+    direct_top_level = workflow_result.get("nerdstats")
+    if isinstance(direct_top_level, dict):
+        return direct_top_level
+
+    metadata = workflow_result.get("metadata")
+    if isinstance(metadata, dict):
+        direct_metadata = metadata.get("nerdstats")
+        if isinstance(direct_metadata, dict):
+            return direct_metadata
+
     events = workflow_result.get("events")
     if not isinstance(events, list):
         return None
@@ -173,35 +183,88 @@ def _extract_tool_usage(event_counts: dict[str, int]) -> list[dict[str, Any]]:
 
 
 def _build_usage_summary(nerdstats: dict[str, Any] | None) -> dict[str, Any]:
+    def _as_number_or_none(value: Any) -> int | float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return value
+        return None
+
+    def _first_number_or_none(*values: Any) -> int | float | None:
+        for value in values:
+            converted = _as_number_or_none(value)
+            if converted is not None:
+                return converted
+        return None
+
+    def _as_string_or_none(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
     if not isinstance(nerdstats, dict):
         return {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "reasoning_tokens": 0,
-            "ttft_ms": 0,
-            "total_elapsed_ms": 0,
-            "tokens_per_second": 0,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "reasoning_tokens": None,
+            "ttft_ms": None,
+            "total_elapsed_ms": None,
+            "tokens_per_second": None,
+            "token_metrics_available": False,
+            "token_metrics_source": None,
+            "llm_nodes_without_usage": [],
         }
 
+    token_metrics_available = nerdstats.get("token_metrics_available")
+    if not isinstance(token_metrics_available, bool):
+        token_metrics_available = True
+
+    raw_nodes_without_usage = nerdstats.get("llm_nodes_without_usage")
+    llm_nodes_without_usage: list[str] = []
+    if isinstance(raw_nodes_without_usage, list):
+        for node_id in raw_nodes_without_usage:
+            text = str(node_id or "").strip()
+            if text != "":
+                llm_nodes_without_usage.append(text)
+
     return {
-        "prompt_tokens": int(
-            nerdstats.get("total_input_tokens", nerdstats.get("prompt_tokens", 0)) or 0
-        ),
-        "completion_tokens": int(
-            nerdstats.get("total_output_tokens", nerdstats.get("completion_tokens", 0))
-            or 0
-        ),
-        "total_tokens": int(nerdstats.get("total_tokens", 0) or 0),
-        "reasoning_tokens": int(
-            nerdstats.get(
-                "total_reasoning_tokens", nerdstats.get("reasoning_tokens", 0)
+        "prompt_tokens": (
+            _first_number_or_none(
+                nerdstats.get("total_input_tokens"), nerdstats.get("prompt_tokens")
             )
-            or 0
+            if token_metrics_available
+            else None
         ),
-        "ttft_ms": int(nerdstats.get("ttft_ms", 0) or 0),
-        "total_elapsed_ms": int(nerdstats.get("total_elapsed_ms", 0) or 0),
-        "tokens_per_second": nerdstats.get("tokens_per_second", 0) or 0,
+        "completion_tokens": (
+            _first_number_or_none(
+                nerdstats.get("total_output_tokens"), nerdstats.get("completion_tokens")
+            )
+            if token_metrics_available
+            else None
+        ),
+        "total_tokens": (
+            _as_number_or_none(nerdstats.get("total_tokens"))
+            if token_metrics_available
+            else None
+        ),
+        "reasoning_tokens": (
+            _first_number_or_none(
+                nerdstats.get("total_reasoning_tokens"),
+                nerdstats.get("reasoning_tokens"),
+            )
+            if token_metrics_available
+            else None
+        ),
+        "ttft_ms": _as_number_or_none(nerdstats.get("ttft_ms")),
+        "total_elapsed_ms": _as_number_or_none(nerdstats.get("total_elapsed_ms")),
+        "tokens_per_second": _as_number_or_none(nerdstats.get("tokens_per_second")),
+        "token_metrics_available": token_metrics_available,
+        "token_metrics_source": _as_string_or_none(
+            nerdstats.get("token_metrics_source")
+        ),
+        "llm_nodes_without_usage": llm_nodes_without_usage,
     }
 
 
@@ -250,7 +313,7 @@ def _build_canonical_telemetry_envelope(
             "terminal_node": str(workflow_result.get("terminal_node", "")).strip(),
             "status": str(workflow_result.get("status", "")).strip() or "completed",
             "total_elapsed_ms": int(workflow_result.get("total_elapsed_ms", 0) or 0),
-            "ttft_ms": int(usage.get("ttft_ms", 0) or 0),
+            "ttft_ms": usage.get("ttft_ms"),
         },
         "usage": usage,
         "model_usage": model_usage,

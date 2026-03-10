@@ -60,6 +60,7 @@ test("writeEventFromWorkflowResult emits telemetry-envelope.v1 payload", async (
                 total_input_tokens: 10,
                 total_output_tokens: 5,
                 total_tokens: 15,
+                total_reasoning_tokens: 2,
                 step_details: [
                   {
                     model_name: "gpt-5-mini",
@@ -81,7 +82,55 @@ test("writeEventFromWorkflowResult emits telemetry-envelope.v1 payload", async (
     assert.equal(captured.user_id, "user_123");
     assert.equal(captured.payload.schema_version, "telemetry-envelope.v1");
     assert.equal(captured.payload.usage.total_tokens, 15);
+    assert.equal(captured.payload.usage.reasoning_tokens, 2);
     assert.equal(captured.payload.model_usage[0].model, "gpt-5-mini");
+  } finally {
+    server.close();
+  }
+});
+
+test("writeEventFromWorkflowResult extracts top-level nerdstats and keeps unavailable token usage nullable", async () => {
+  let captured = null;
+  const { server, baseUrl } = await startServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      captured = JSON.parse(body);
+      res.statusCode = 204;
+      res.end();
+    });
+  });
+
+  try {
+    const client = new SimpleFlowClient({ baseUrl });
+    await client.writeEventFromWorkflowResult({
+      agentId: "agent_support_v1",
+      workflowResult: {
+        workflow_id: "email-chat-draft-or-clarify",
+        terminal_node: "ask_for_scenario",
+        nerdstats: {
+          total_input_tokens: 999,
+          total_output_tokens: 888,
+          total_tokens: 777,
+          token_metrics_available: false,
+          token_metrics_source: "provider_stream_usage_unavailable",
+          llm_nodes_without_usage: ["detect_scenario_context"],
+          total_elapsed_ms: 321,
+        },
+      },
+    });
+
+    assert.equal(captured.payload.usage.prompt_tokens, null);
+    assert.equal(captured.payload.usage.completion_tokens, null);
+    assert.equal(captured.payload.usage.total_tokens, null);
+    assert.equal(captured.payload.usage.reasoning_tokens, null);
+    assert.equal(captured.payload.usage.total_elapsed_ms, 321);
+    assert.equal(captured.payload.usage.token_metrics_available, false);
+    assert.equal(captured.payload.usage.token_metrics_source, "provider_stream_usage_unavailable");
+    assert.deepEqual(captured.payload.usage.llm_nodes_without_usage, ["detect_scenario_context"]);
+    assert.equal(captured.payload.nerdstats.token_metrics_available, false);
   } finally {
     server.close();
   }

@@ -48,9 +48,10 @@ func TestWriteEventFromWorkflowResult(t *testing.T) {
 				"event_type": "workflow_completed",
 				"metadata": map[string]any{
 					"nerdstats": map[string]any{
-						"total_input_tokens":  10,
-						"total_output_tokens": 5,
-						"total_tokens":        15,
+						"total_input_tokens":     10,
+						"total_output_tokens":    5,
+						"total_tokens":           15,
+						"total_reasoning_tokens": 2,
 						"step_details": []map[string]any{{
 							"model_name":        "gpt-5-mini",
 							"prompt_tokens":     10,
@@ -93,6 +94,76 @@ func TestWriteEventFromWorkflowResult(t *testing.T) {
 	}
 	if got := usage["total_tokens"]; got != float64(15) {
 		t.Fatalf("unexpected usage.total_tokens: %v", got)
+	}
+	if got := usage["reasoning_tokens"]; got != float64(2) {
+		t.Fatalf("unexpected usage.reasoning_tokens: %v", got)
+	}
+}
+
+func TestWriteEventFromWorkflowResultTopLevelNerdstatsAndNullableUsage(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	err = client.WriteEventFromWorkflowResult(context.Background(), WriteEventFromWorkflowResultInput{
+		AgentID: "agent_support_v1",
+		WorkflowResult: map[string]any{
+			"workflow_id":   "email-chat-draft-or-clarify",
+			"terminal_node": "ask_for_scenario",
+			"nerdstats": map[string]any{
+				"total_input_tokens":      999,
+				"total_output_tokens":     888,
+				"total_tokens":            777,
+				"token_metrics_available": false,
+				"token_metrics_source":    "provider_stream_usage_unavailable",
+				"llm_nodes_without_usage": []any{"detect_scenario_context"},
+				"total_elapsed_ms":        321,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write event from workflow result: %v", err)
+	}
+
+	payload, ok := captured["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload map, got %T", captured["payload"])
+	}
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected usage map, got %T", payload["usage"])
+	}
+	if got := usage["prompt_tokens"]; got != nil {
+		t.Fatalf("expected prompt_tokens nil, got %v", got)
+	}
+	if got := usage["completion_tokens"]; got != nil {
+		t.Fatalf("expected completion_tokens nil, got %v", got)
+	}
+	if got := usage["total_tokens"]; got != nil {
+		t.Fatalf("expected total_tokens nil, got %v", got)
+	}
+	if got := usage["reasoning_tokens"]; got != nil {
+		t.Fatalf("expected reasoning_tokens nil, got %v", got)
+	}
+	if got := usage["token_metrics_available"]; got != false {
+		t.Fatalf("expected token_metrics_available false, got %v", got)
+	}
+	if got := usage["token_metrics_source"]; got != "provider_stream_usage_unavailable" {
+		t.Fatalf("unexpected token_metrics_source: %v", got)
+	}
+	if got := usage["total_elapsed_ms"]; got != float64(321) {
+		t.Fatalf("unexpected usage.total_elapsed_ms: %v", got)
 	}
 }
 

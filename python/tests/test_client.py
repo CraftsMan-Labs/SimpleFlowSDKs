@@ -283,6 +283,7 @@ class SimpleFlowClientTests(unittest.TestCase):
                                 "total_input_tokens": 10,
                                 "total_output_tokens": 5,
                                 "total_tokens": 15,
+                                "total_reasoning_tokens": 2,
                                 "step_details": [
                                     {
                                         "model_name": "gpt-5-mini",
@@ -307,6 +308,72 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(payload["user_id"], "user_123")
         self.assertEqual(payload["payload"]["schema_version"], "telemetry-envelope.v1")
         self.assertEqual(payload["payload"]["usage"]["total_tokens"], 15)
+        self.assertEqual(payload["payload"]["usage"]["reasoning_tokens"], 2)
+
+    def test_write_event_from_workflow_result_prefers_top_level_nerdstats(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        fake_http.registrations_payload = []
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_event_from_workflow_result(
+            agent_id="agent_support_v1",
+            workflow_result={
+                "workflow_id": "email-chat-draft-or-clarify",
+                "terminal_node": "ask_for_scenario",
+                "nerdstats": {
+                    "total_input_tokens": 999,
+                    "total_tokens": 777,
+                    "token_metrics_available": False,
+                    "token_metrics_source": "provider_stream_usage_unavailable",
+                    "llm_nodes_without_usage": ["detect_scenario_context"],
+                    "total_elapsed_ms": 321,
+                },
+                "events": [
+                    {
+                        "event_type": "workflow_completed",
+                        "metadata": {"nerdstats": {"total_tokens": 15}},
+                    }
+                ],
+            },
+        )
+
+        _, payload, _ = fake_http.calls[-1]
+        usage = payload["payload"]["usage"]
+        self.assertIsNone(usage["prompt_tokens"])
+        self.assertIsNone(usage["completion_tokens"])
+        self.assertIsNone(usage["total_tokens"])
+        self.assertIsNone(usage["reasoning_tokens"])
+        self.assertEqual(usage["total_elapsed_ms"], 321)
+        self.assertEqual(usage["token_metrics_available"], False)
+        self.assertEqual(
+            usage["token_metrics_source"], "provider_stream_usage_unavailable"
+        )
+        self.assertEqual(usage["llm_nodes_without_usage"], ["detect_scenario_context"])
+
+    def test_write_event_from_workflow_result_reads_metadata_nerdstats(self) -> None:
+        client = SimpleFlowClient(base_url="https://api.example")
+        fake_http = _FakeHTTPClient()
+        fake_http.registrations_payload = []
+        client._client = fake_http  # type: ignore[attr-defined]
+
+        client.write_event_from_workflow_result(
+            agent_id="agent_support_v1",
+            workflow_result={
+                "workflow_id": "email-chat-draft-or-clarify",
+                "terminal_node": "ask_for_scenario",
+                "metadata": {
+                    "nerdstats": {
+                        "total_input_tokens": 12,
+                        "total_output_tokens": 8,
+                        "total_tokens": 20,
+                    }
+                },
+            },
+        )
+
+        _, payload, _ = fake_http.calls[-1]
+        self.assertEqual(payload["payload"]["usage"]["total_tokens"], 20)
 
     def test_with_telemetry_simpleflow_emits_runtime_event(self) -> None:
         client = SimpleFlowClient(base_url="https://api.example")

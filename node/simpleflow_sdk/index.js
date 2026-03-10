@@ -51,6 +51,8 @@ function countEventTypes(workflowResult) {
 }
 
 function extractNerdstats(workflowResult) {
+  const topLevel = workflowResult?.nerdstats;
+  if (topLevel && typeof topLevel === "object" && !Array.isArray(topLevel)) return topLevel;
   const direct = workflowResult?.metadata?.nerdstats;
   if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
   const events = Array.isArray(workflowResult.events) ? workflowResult.events : [];
@@ -65,25 +67,52 @@ function extractNerdstats(workflowResult) {
 }
 
 function usageSummary(nerdstats) {
+  const readNumberOrNull = (value) => {
+    if (value == null) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const readStringOrNull = (value) => {
+    const text = String(value || "").trim();
+    return text ? text : null;
+  };
+
   if (!nerdstats) {
     return {
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
-      reasoning_tokens: 0,
-      ttft_ms: 0,
-      total_elapsed_ms: 0,
-      tokens_per_second: 0,
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+      reasoning_tokens: null,
+      ttft_ms: null,
+      total_elapsed_ms: null,
+      tokens_per_second: null,
+      token_metrics_available: false,
+      token_metrics_source: null,
+      llm_nodes_without_usage: [],
     };
   }
+
+  const tokenMetricsAvailable =
+    typeof nerdstats.token_metrics_available === "boolean" ? nerdstats.token_metrics_available : true;
+  const llmNodesWithoutUsage = Array.isArray(nerdstats.llm_nodes_without_usage)
+    ? nerdstats.llm_nodes_without_usage.map((nodeId) => String(nodeId || "").trim()).filter(Boolean)
+    : [];
+
   return {
-    prompt_tokens: Number(nerdstats.total_input_tokens ?? nerdstats.prompt_tokens ?? 0),
-    completion_tokens: Number(nerdstats.total_output_tokens ?? nerdstats.completion_tokens ?? 0),
-    total_tokens: Number(nerdstats.total_tokens ?? 0),
-    reasoning_tokens: Number(nerdstats.total_reasoning_tokens ?? nerdstats.reasoning_tokens ?? 0),
-    ttft_ms: Number(nerdstats.ttft_ms ?? 0),
-    total_elapsed_ms: Number(nerdstats.total_elapsed_ms ?? 0),
-    tokens_per_second: Number(nerdstats.tokens_per_second ?? 0),
+    prompt_tokens: tokenMetricsAvailable ? readNumberOrNull(nerdstats.total_input_tokens ?? nerdstats.prompt_tokens) : null,
+    completion_tokens: tokenMetricsAvailable
+      ? readNumberOrNull(nerdstats.total_output_tokens ?? nerdstats.completion_tokens)
+      : null,
+    total_tokens: tokenMetricsAvailable ? readNumberOrNull(nerdstats.total_tokens) : null,
+    reasoning_tokens: tokenMetricsAvailable
+      ? readNumberOrNull(nerdstats.total_reasoning_tokens ?? nerdstats.reasoning_tokens)
+      : null,
+    ttft_ms: readNumberOrNull(nerdstats.ttft_ms),
+    total_elapsed_ms: readNumberOrNull(nerdstats.total_elapsed_ms),
+    tokens_per_second: readNumberOrNull(nerdstats.tokens_per_second),
+    token_metrics_available: tokenMetricsAvailable,
+    token_metrics_source: readStringOrNull(nerdstats.token_metrics_source),
+    llm_nodes_without_usage: llmNodesWithoutUsage,
   };
 }
 
@@ -188,7 +217,7 @@ function buildCanonicalTelemetryEnvelope({
       terminal_node: String(workflowResult.terminal_node || "").trim(),
       status: String(workflowResult.status || "").trim() || "completed",
       total_elapsed_ms: Number(workflowResult.total_elapsed_ms || 0),
-      ttft_ms: Number(usage.ttft_ms || 0),
+      ttft_ms: usage.ttft_ms,
     },
     usage,
     model_usage: modelUsage(nerdstats),

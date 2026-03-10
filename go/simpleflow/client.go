@@ -441,7 +441,7 @@ func buildCanonicalTelemetryEnvelope(
 			"terminal_node":    stringValue(workflowResult, "terminal_node"),
 			"status":           workflowStatus,
 			"total_elapsed_ms": numericValue(workflowResult, "total_elapsed_ms"),
-			"ttft_ms":          numericValue(nerdstats, "ttft_ms"),
+			"ttft_ms":          firstNumericOrNil(nerdstats, "ttft_ms"),
 		},
 		"usage":        usage,
 		"model_usage":  modelUsage,
@@ -460,6 +460,9 @@ func buildCanonicalTelemetryEnvelope(
 }
 
 func extractNerdstats(workflowResult map[string]any, events []any) map[string]any {
+	if topLevel, ok := workflowResult["nerdstats"].(map[string]any); ok {
+		return topLevel
+	}
 	metadata := nestedMap(workflowResult, "metadata")
 	if direct := nestedMap(metadata, "nerdstats"); len(direct) > 0 {
 		return direct
@@ -484,15 +487,32 @@ func extractNerdstats(workflowResult map[string]any, events []any) map[string]an
 }
 
 func buildUsage(nerdstats map[string]any) map[string]any {
-	return map[string]any{
-		"prompt_tokens":     firstNumericValue(nerdstats, "total_input_tokens", "prompt_tokens"),
-		"completion_tokens": firstNumericValue(nerdstats, "total_output_tokens", "completion_tokens"),
-		"total_tokens":      firstNumericValue(nerdstats, "total_tokens"),
-		"reasoning_tokens":  firstNumericValue(nerdstats, "total_reasoning_tokens", "reasoning_tokens"),
-		"ttft_ms":           firstNumericValue(nerdstats, "ttft_ms"),
-		"total_elapsed_ms":  firstNumericValue(nerdstats, "total_elapsed_ms"),
-		"tokens_per_second": firstNumericValue(nerdstats, "tokens_per_second"),
+	tokenMetricsAvailable := true
+	if len(nerdstats) == 0 {
+		tokenMetricsAvailable = false
+	} else if value, ok := nerdstats["token_metrics_available"].(bool); ok {
+		tokenMetricsAvailable = value
 	}
+
+	return map[string]any{
+		"prompt_tokens":           usageTokenMetric(nerdstats, tokenMetricsAvailable, "total_input_tokens", "prompt_tokens"),
+		"completion_tokens":       usageTokenMetric(nerdstats, tokenMetricsAvailable, "total_output_tokens", "completion_tokens"),
+		"total_tokens":            usageTokenMetric(nerdstats, tokenMetricsAvailable, "total_tokens"),
+		"reasoning_tokens":        usageTokenMetric(nerdstats, tokenMetricsAvailable, "total_reasoning_tokens", "reasoning_tokens"),
+		"ttft_ms":                 firstNumericOrNil(nerdstats, "ttft_ms"),
+		"total_elapsed_ms":        firstNumericOrNil(nerdstats, "total_elapsed_ms"),
+		"tokens_per_second":       firstNumericOrNil(nerdstats, "tokens_per_second"),
+		"token_metrics_available": tokenMetricsAvailable,
+		"token_metrics_source":    stringValueOrNil(nerdstats, "token_metrics_source"),
+		"llm_nodes_without_usage": stringListValue(nerdstats, "llm_nodes_without_usage"),
+	}
+}
+
+func usageTokenMetric(nerdstats map[string]any, tokenMetricsAvailable bool, keys ...string) any {
+	if !tokenMetricsAvailable {
+		return nil
+	}
+	return firstNumericOrNil(nerdstats, keys...)
 }
 
 func buildModelUsage(nerdstats map[string]any) []map[string]any {
@@ -618,13 +638,13 @@ func stringAny(value any) string {
 	}
 }
 
-func firstNumericValue(root map[string]any, keys ...string) any {
+func firstNumericOrNil(root map[string]any, keys ...string) any {
 	for i := range keys {
 		if value, ok := numericValueWithOK(root, keys[i]); ok {
 			return value
 		}
 	}
-	return int64(0)
+	return nil
 }
 
 func numericValue(root map[string]any, key string) any {
@@ -665,6 +685,33 @@ func numericValueWithOK(root map[string]any, key string) (any, bool) {
 	default:
 		return int64(0), false
 	}
+}
+
+func stringValueOrNil(root map[string]any, key string) any {
+	value := stringValue(root, key)
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func stringListValue(root map[string]any, key string) []string {
+	raw, ok := root[key]
+	if !ok || raw == nil {
+		return []string{}
+	}
+	values, ok := raw.([]any)
+	if !ok {
+		return []string{}
+	}
+	result := make([]string, 0, len(values))
+	for i := range values {
+		text := strings.TrimSpace(stringAny(values[i]))
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 func floatNumericValue(root map[string]any, key string) float64 {
