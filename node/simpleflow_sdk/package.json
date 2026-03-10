@@ -1,0 +1,13 @@
+{
+  "name": "@simpleflow/sdk",
+  "version": "0.1.0",
+  "description": "SimpleFlow Node SDK (Remote Runtime)",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
