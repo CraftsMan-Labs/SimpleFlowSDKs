@@ -41,7 +41,7 @@ No subagents have been spawned yet for this refactor.
 
 ## Progress update
 
-- Added `TELEMETRY_ENVELOPE_V1.md` as canonical payload spec.
+- Added `docs/telemetry-envelope-v1-spec.md` as canonical payload spec.
 - Refactored Go and Python workflow-result bridges to emit `telemetry-envelope.v1` payload.
 - Added model usage, tool usage, usage summary, and event count normalization in both SDKs.
 - Added/updated Go and Python tests to validate canonical payload emission.

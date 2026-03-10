@@ -23,11 +23,11 @@ Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 - Chat history: `list_chat_history_messages(...)`, `create_chat_history_message(...)`, `update_chat_history_message(...)`.
 - Workflow bridge: `write_event_from_workflow_result(...)`.
 - Telemetry bridge: `with_telemetry(...).emit_span(...)` with `simpleflow` and `otlp` modes.
-- Canonical workflow telemetry payload: `telemetry-envelope.v1` (see `TELEMETRY_ENVELOPE_V1.md`).
+- Canonical workflow telemetry payload: `telemetry-envelope.v1` (see `docs/telemetry-envelope-v1-spec.md`).
 
 ## Compatibility
 
-- Version compatibility and contract mapping are tracked in `COMPATIBILITY_MATRIX.md`.
+- Version compatibility and contract mapping are tracked in `docs/compatibility-matrix.md`.
 
 ## Documentation
 

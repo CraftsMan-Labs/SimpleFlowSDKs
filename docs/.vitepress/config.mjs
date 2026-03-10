@@ -34,6 +34,8 @@ export default defineConfig({
         text: "Telemetry and Ops",
         items: [
           { text: "Telemetry Envelope V1", link: "/telemetry-envelope-v1" },
+          { text: "Telemetry Envelope V1 Spec", link: "/telemetry-envelope-v1-spec" },
+          { text: "Compatibility Matrix", link: "/compatibility-matrix" },
           { text: "Publishing", link: "/publishing" },
           { text: "Troubleshooting", link: "/troubleshooting" }
         ]

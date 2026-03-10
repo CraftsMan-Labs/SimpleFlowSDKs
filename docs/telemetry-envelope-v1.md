@@ -22,4 +22,4 @@
 
 ## Source of truth
 
-See the contract definition in `TELEMETRY_ENVELOPE_V1.md` at the repository root.
+See the full contract definition in `telemetry-envelope-v1-spec.md`.

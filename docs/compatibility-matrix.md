@@ -19,7 +19,7 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 
 | SimpleAgents | SimpleFlowSDKs | SimpleFlow API Contract | Status | Notes |
 | --- | --- | --- | --- | --- |
-| `feat/telemetry-sample-rate-enforcement` and later | `main` (this repository, current) | `v1 runtime envelope` | ✅ validated | Deterministic trace-id-based sampling and canonical `telemetry-envelope.v1` payload mapping are applied by `write_event_from_workflow_result(...)`. |
+| `feat/telemetry-sample-rate-enforcement` and later | `main` (this repository, current) | `v1 runtime envelope` | validated | Deterministic trace-id-based sampling and canonical `telemetry-envelope.v1` payload mapping are applied by `write_event_from_workflow_result(...)`. |
 
 ## Validation Notes
 
@@ -30,7 +30,7 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 - Both SDKs support telemetry mode routing:
   - `simpleflow`: emits runtime telemetry span events.
   - `otlp`: forwards spans to the caller-provided OTLP sink.
-- Workflow-result bridge emits a canonical payload contract documented in `TELEMETRY_ENVELOPE_V1.md`.
+- Workflow-result bridge emits a canonical payload contract documented in `telemetry-envelope-v1-spec.md`.
 
 ## Versioning Guidance
 
