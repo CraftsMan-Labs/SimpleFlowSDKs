@@ -114,7 +114,7 @@ publish-python-dry: build-python
 publish-python: build-python
 	$(DOPPLER_RUN) 'TOKEN_SOURCE=$$(if [ -n "$$V_PUBLISH_TOKEN" ]; then echo V_PUBLISH_TOKEN; elif [ -n "$$UV_PUBLISH_TOKEN" ]; then echo UV_PUBLISH_TOKEN; else echo NONE; fi); \
 	TOKEN_VALUE=$${V_PUBLISH_TOKEN:-$${UV_PUBLISH_TOKEN}}; \
-	VERSION_VALUE=$$(awk -F '"' '/^version = / {print $$2; exit}' "$(PYTHON_PYPROJECT)"); \
+	VERSION_VALUE=$$($(MAKE) --no-print-directory version-get); \
 	set -- "$(PYTHON_DIST_DIR)"/simpleflow_sdk-$$VERSION_VALUE*; \
 	if [ "$$1" = "$(PYTHON_DIST_DIR)/simpleflow_sdk-$$VERSION_VALUE*" ]; then echo "[publish-python] missing dist artifacts for version $$VERSION_VALUE"; exit 1; fi; \
 	echo "[publish-python] token_source=$$TOKEN_SOURCE token_len=$${#TOKEN_VALUE}"; \
