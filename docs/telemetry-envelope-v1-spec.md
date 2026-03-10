@@ -39,7 +39,10 @@ Top-level payload shape:
     "reasoning_tokens": 20,
     "ttft_ms": 20,
     "total_elapsed_ms": 1234,
-    "tokens_per_second": 44.6
+    "tokens_per_second": 44.6,
+    "token_metrics_available": true,
+    "token_metrics_source": "provider_usage",
+    "llm_nodes_without_usage": []
   },
   "model_usage": [
     {
@@ -74,4 +77,6 @@ Top-level payload shape:
 
 - `raw` is optional and should only be included for debug or audit use-cases.
 - `nerdstats` is optional and mirrors provider-specific details from workflow execution.
+- When token accounting is unavailable, `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens`, and `usage.reasoning_tokens` MUST be `null`.
+- In that case, `usage.token_metrics_available` SHOULD be `false` and `usage.token_metrics_source` SHOULD explain availability mode.
 - Runtime event envelope fields (`agent_id`, `organization_id`, `user_id`, `run_id`, `trace_id`, `conversation_id`, `request_id`, `sampled`) should be aligned with this payload.
