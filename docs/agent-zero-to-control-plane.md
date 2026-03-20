@@ -44,18 +44,13 @@ If your template location differs:
 WORKFLOW_SOURCE_ROOT=/path/to/workflows npm run sync-workflow
 ```
 
-## 3) Register runtime in SimpleFlow
+## 3) Connect runtime in SimpleFlow
 
 ```bash
 npm run register-runtime
 ```
 
-This calls `ensureRuntimeRegistrationActive(...)` and handles create + validate + activate lifecycle.
-
-Expected fields in output:
-
-- `status: "active"`
-- `registration_id`
+This connects the runtime endpoint and upserts the active routing entry for your agent.
 
 ## 4) Run locally and write telemetry
 
@@ -92,7 +87,7 @@ From `examples/simpleflow-hr-agent/package.json`:
 }
 ```
 
-### Register and activate runtime
+### Connect runtime endpoint
 
 From `examples/simpleflow-hr-agent/scripts/register-runtime.js`:
 
@@ -100,19 +95,19 @@ From `examples/simpleflow-hr-agent/scripts/register-runtime.js`:
 const client = new SimpleFlowClient({
   baseUrl: process.env.SIMPLEFLOW_BASE_URL,
   apiToken: process.env.SIMPLEFLOW_API_TOKEN,
+  runtimeRegisterPath: "/v1/runtime/connect",
 })
 
-const registration = {
+const connectPayload = {
   agent_id: process.env.SIMPLEFLOW_AGENT_ID || "hr-agent-runtime",
   agent_version: process.env.SIMPLEFLOW_AGENT_VERSION || "v1",
-  execution_mode: "remote_runtime",
   endpoint_url: process.env.RUNTIME_ENDPOINT_URL,
   auth_mode: process.env.RUNTIME_AUTH_MODE || "jwt",
   capabilities: ["chat", "webhook", "queue"],
   runtime_id: process.env.SIMPLEFLOW_RUNTIME_ID || "runtime_local_hr_agent",
 }
 
-const result = await client.ensureRuntimeRegistrationActive({ registration })
+const result = await client.registerRuntime(connectPayload)
 ```
 
 ### Run local workflow and emit telemetry

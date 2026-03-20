@@ -5,8 +5,7 @@ This SDK helps remote runtime backends integrate with the SimpleFlow control pla
 ## Features
 
 - Typed invoke request/result and error envelope contracts.
-- Control-plane API client for runtime registration and invoke.
-- Runtime lifecycle helpers for activate/deactivate/validate registration endpoints.
+- Control-plane API client for runtime connect and invoke.
 - Runtime API client for event, chat message, and queue contract writes.
 - Chat history APIs for list/create/update by `agent_id` + `chat_id` + `user_id`.
 - Invoke token verifier supporting JWKS (asymmetric) and HS256 shared-key validation.
@@ -53,9 +52,11 @@ err = telemetry.EmitSpan(ctx, simpleflow.EmitSpanInput{
 
 ## Security note: runtime endpoint allowlist
 
-If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime registration calls from this SDK (`CreateRuntimeRegistration` / lifecycle helpers that create registrations) return `400` when `EndpointURL` uses a host not present in that allowlist.
+If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime connect calls from this SDK return `400` when `EndpointURL` uses a host not present in that allowlist.
 
-## Auth verifier modes
+## Auth verifier modes (legacy invoke tokens)
+
+Use these helpers only if your runtime validates control-plane-issued invoke tokens. For pass-through auth, validate the caller's IdP access tokens directly.
 
 ```go
 // JWKS + asymmetric signatures (RS/ES)

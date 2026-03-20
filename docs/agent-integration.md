@@ -70,7 +70,7 @@ Then bridge final result to SimpleFlow via `writeEventFromWorkflowResult(...)` s
 
 ## Want a full project from zero?
 
-If you want the complete setup (project scaffold, workflow sync, runtime registration, local run, and invoke verification), use:
+If you want the complete setup (project scaffold, workflow sync, runtime connect, local run, and invoke verification via IdP tokens), use:
 
 - [Zero to Control Plane](/agent-zero-to-control-plane)
 - runnable example project: `examples/simpleflow-hr-agent`

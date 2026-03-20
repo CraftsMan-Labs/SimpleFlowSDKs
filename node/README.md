@@ -5,7 +5,7 @@ This SDK helps Node.js remote runtime backends integrate with the SimpleFlow con
 ## Features
 
 - Runtime API client for invoke and runtime writes (`writeEvent`, `writeChatMessage`, `publishQueueContract`).
-- Runtime lifecycle helpers (`registerRuntime`, `listRuntimeRegistrations`, `activate/deactivate/validate`, `ensureRuntimeRegistrationActive`).
+- Runtime connect helper for `/v1/runtime/connect`.
 - Workflow-result bridge (`writeEventFromWorkflowResult`) that emits canonical `telemetry-envelope.v1` payloads.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 - Chat history list/create/update helpers.

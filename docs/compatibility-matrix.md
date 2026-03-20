@@ -6,7 +6,7 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 
 - Runtime events endpoint: `POST /v1/runtime/events`
 - Control-plane runtime endpoints:
-  - `POST /v1/runtime/registrations`
+  - `POST /v1/runtime/connect`
   - `POST /v1/runtime/invoke`
 - Chat history endpoints:
   - `GET /v1/chat/history/messages`

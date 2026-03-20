@@ -36,16 +36,13 @@ Optional alternate source path:
 WORKFLOW_SOURCE_ROOT=/path/to/your/workflows npm run sync-workflow
 ```
 
-## 3) Register runtime in SimpleFlow control plane
+## 3) Connect runtime in SimpleFlow control plane
 
 ```bash
 npm run register-runtime
 ```
 
-Expected output includes:
-
-- `status: "active"`
-- `registration_id`
+Expected output includes a successful connect response.
 
 ## 4) Run the agent locally and emit telemetry
 
@@ -77,6 +74,6 @@ This verifies runtime invocation contract end-to-end (`POST /v1/runtime/invoke`)
 ## Files
 
 - `scripts/sync-workflow.js`: sync workflow from template repo.
-- `scripts/register-runtime.js`: create/validate/activate registration.
+- `scripts/register-runtime.js`: connect runtime endpoint.
 - `scripts/run-local-agent.js`: local workflow run + telemetry write.
 - `scripts/invoke-control-plane.js`: invoke runtime via control plane.

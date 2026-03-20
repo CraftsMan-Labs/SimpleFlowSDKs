@@ -4,7 +4,7 @@ This SDK helps Python remote runtime backends integrate with the SimpleFlow cont
 
 ## Features
 
-- API client for auth/session helpers, runtime registration lifecycle orchestration (`list/activate/deactivate/validate/ensure_active`), invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
+- API client for auth/session helpers, runtime connect, invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
 - Invoke token verification helper for control-plane issued tokens (HS256 shared key and RS256 public key/JWKS usage).
 - Method-level auth token overrides on control-plane and lifecycle methods.
 - Typed request errors (`SimpleFlowAuthenticationError`, `SimpleFlowAuthorizationError`, `SimpleFlowLifecycleError`).
@@ -42,9 +42,11 @@ telemetry.emit_span(
 
 ## Security note: runtime endpoint allowlist
 
-If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime registration calls from this SDK (`register_runtime` / `ensure_runtime_registration_active`) will fail with `400` unless the registration `endpoint_url` host is included in that allowlist.
+If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime connect calls from this SDK will fail with `400` unless the `endpoint_url` host is included in that allowlist.
 
-## Auth verifier usage
+## Auth verifier usage (legacy invoke tokens)
+
+Use this only if your runtime validates control-plane-issued invoke tokens. For pass-through auth, validate the caller's IdP access tokens directly.
 
 ```python
 from simpleflow_sdk import InvokeTokenVerifier

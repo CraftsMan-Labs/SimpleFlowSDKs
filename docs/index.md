@@ -22,7 +22,7 @@ features:
   - title: Canonical telemetry
     details: "telemetry-envelope.v1 standardizes usage, model, tool, and trace correlation metadata."
   - title: Runtime-ready
-    details: Includes runtime registration lifecycle helpers and chat history integration helpers.
+    details: Includes runtime connect and chat history integration helpers.
   - title: Control-plane analytics fit
     details: Payloads align to analytics dimensions like user, conversation, run, and token usage.
 ---
