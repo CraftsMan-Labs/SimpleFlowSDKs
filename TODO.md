@@ -53,3 +53,23 @@
 
 10. Status: completed
     - Run cross-language test suite and verify parity for canonical telemetry envelope output.
+
+## Parent Task: Add per-language integration guides (auth + telemetry + chat + workflows)
+
+- Status: completed
+- Why: Provide a single page per SDK with end-to-end guidance for auth, telemetry, chat, and workflow execution.
+- Decision: Keep each guide language-specific and aligned to current control-plane auth model (pass-through invoke bearer).
+
+### Subtasks
+
+1. Status: completed
+   - Add Node guide with auth modes, telemetry bridge, chat usage, and SimpleAgents workflow example.
+
+2. Status: completed
+   - Add Python guide with auth modes, telemetry bridge, chat history usage, and SimpleAgents workflow example.
+
+3. Status: completed
+   - Add Go guide with auth modes, telemetry bridge, chat usage, and SimpleAgents workflow example.
+
+4. Status: completed
+   - Add guides to VitePress sidebar and cross-link from SDK overview pages.
