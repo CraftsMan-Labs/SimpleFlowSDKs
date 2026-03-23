@@ -36,3 +36,7 @@ await client.writeEvent({
   payload: { source: "node-sdk-docs" },
 })
 ```
+
+## Integration guide
+
+- See full auth + telemetry + chat + workflow setup: [Node Integration](/sdk-node-integration)

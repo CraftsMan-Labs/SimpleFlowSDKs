@@ -34,3 +34,7 @@ _ = client.WriteEvent(ctx, simpleflow.RuntimeEvent{
     Payload:        map[string]any{"source": "go-sdk-docs"},
 })
 ```
+
+## Integration guide
+
+- See full auth + telemetry + chat + workflow setup: [Go Integration](/sdk-go-integration)

@@ -28,8 +28,11 @@ export default defineConfig({
         text: "SDK Guides",
         items: [
           { text: "Node SDK", link: "/sdk-node" },
+          { text: "Node Integration", link: "/sdk-node-integration" },
           { text: "Python SDK", link: "/sdk-python" },
-          { text: "Go SDK", link: "/sdk-go" }
+          { text: "Python Integration", link: "/sdk-python-integration" },
+          { text: "Go SDK", link: "/sdk-go" },
+          { text: "Go Integration", link: "/sdk-go-integration" }
         ]
       },
       {

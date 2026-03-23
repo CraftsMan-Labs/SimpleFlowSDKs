@@ -38,3 +38,7 @@ client.write_event(
     }
 )
 ```
+
+## Integration guide
+
+- See full auth + telemetry + chat + workflow setup: [Python Integration](/sdk-python-integration)
