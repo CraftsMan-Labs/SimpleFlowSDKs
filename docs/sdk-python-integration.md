@@ -4,9 +4,26 @@ This page shows the end-to-end integration flow for auth, telemetry, chat, and r
 
 ## Auth overview
 
-- Machine auth (runtime connect + runtime writes): use a machine access token from `client_id` + `client_secret` (`/v1/oauth/token`).
+- Machine auth (runtime connect + runtime writes): use either `SIMPLEFLOW_API_TOKEN` or set `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET` and let the SDK fetch OAuth token from `/v1/oauth/token`.
 - User auth (runtime invoke): user bearer token hits `/v1/runtime/invoke`; control plane forwards it to your runtime.
 - Chat entrypoint (`/api/v1/chat`): accepts **API key** (`agk_*`) or **user bearer**. `agent_id` is required in the body.
+
+## Auth env options
+
+Option A - static token:
+
+```bash
+export SIMPLEFLOW_BASE_URL="http://localhost:8080"
+export SIMPLEFLOW_API_TOKEN="<machine_runtime_token>"
+```
+
+Option B - client credentials:
+
+```bash
+export SIMPLEFLOW_BASE_URL="http://localhost:8080"
+export MACHINE_CLIENT_ID="<machine_client_id>"
+export MACHINE_CLIENT_SECRET="<machine_client_secret>"
+```
 
 ## Runtime connect
 
@@ -17,7 +34,9 @@ from simpleflow_sdk import SimpleFlowClient
 
 client = SimpleFlowClient(
     base_url=os.environ["SIMPLEFLOW_BASE_URL"],
-    api_token=os.environ["SIMPLEFLOW_API_TOKEN"],
+    api_token=os.getenv("SIMPLEFLOW_API_TOKEN"),
+    oauth_client_id=os.getenv("MACHINE_CLIENT_ID"),
+    oauth_client_secret=os.getenv("MACHINE_CLIENT_SECRET"),
     runtime_register_path="/v1/runtime/connect",
 )
 
@@ -129,7 +148,7 @@ client.write_event_from_workflow_result(
 ## Minimal env
 
 - `SIMPLEFLOW_BASE_URL`
-- `SIMPLEFLOW_API_TOKEN`
+- `SIMPLEFLOW_API_TOKEN` or (`MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`)
 - `SIMPLEFLOW_AGENT_ID`
 - `SIMPLEFLOW_AGENT_VERSION`
 - `SIMPLEFLOW_RUNTIME_ID`

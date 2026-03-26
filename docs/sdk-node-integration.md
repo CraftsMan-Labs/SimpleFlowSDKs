@@ -4,9 +4,26 @@ This page shows the end-to-end integration flow for auth, telemetry, chat, and r
 
 ## Auth overview
 
-- Machine auth (runtime connect + runtime writes): use a machine access token from `client_id` + `client_secret` (`/v1/oauth/token`).
+- Machine auth (runtime connect + runtime writes): use either `SIMPLEFLOW_API_TOKEN` or set `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET` and let the SDK fetch OAuth token from `/v1/oauth/token`.
 - User auth (runtime invoke): user bearer token hits `/v1/runtime/invoke`; control plane forwards it to your runtime.
 - Chat entrypoint (`/api/v1/chat`): accepts **API key** (`agk_*`) or **user bearer**. `agent_id` is required in the body.
+
+## Auth env options
+
+Option A - static token:
+
+```bash
+export SIMPLEFLOW_BASE_URL="http://localhost:8080"
+export SIMPLEFLOW_API_TOKEN="<machine_runtime_token>"
+```
+
+Option B - client credentials:
+
+```bash
+export SIMPLEFLOW_BASE_URL="http://localhost:8080"
+export MACHINE_CLIENT_ID="<machine_client_id>"
+export MACHINE_CLIENT_SECRET="<machine_client_secret>"
+```
 
 ## Runtime connect
 
@@ -16,6 +33,8 @@ const { SimpleFlowClient } = require("simpleflow-sdk")
 const client = new SimpleFlowClient({
   baseUrl: process.env.SIMPLEFLOW_BASE_URL,
   apiToken: process.env.SIMPLEFLOW_API_TOKEN,
+  oauthClientId: process.env.MACHINE_CLIENT_ID,
+  oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
   runtimeRegisterPath: "/v1/runtime/connect",
 })
 
@@ -112,7 +131,7 @@ await client.writeEventFromWorkflowResult({
 ## Minimal env
 
 - `SIMPLEFLOW_BASE_URL`
-- `SIMPLEFLOW_API_TOKEN`
+- `SIMPLEFLOW_API_TOKEN` or (`MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`)
 - `SIMPLEFLOW_AGENT_ID`
 - `SIMPLEFLOW_AGENT_VERSION`
 - `SIMPLEFLOW_RUNTIME_ID`
