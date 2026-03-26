@@ -18,7 +18,7 @@ hero:
 
 features:
   - title: Multi-language parity
-    details: Node, Python, and Go expose aligned runtime write and workflow bridge APIs.
+    details: JavaScript, TypeScript, Python, and Go expose aligned runtime write and workflow bridge APIs.
   - title: Canonical telemetry
     details: "telemetry-envelope.v1 standardizes usage, model, tool, and trace correlation metadata."
   - title: Runtime-ready
@@ -40,4 +40,4 @@ features:
 - SimpleAgents to SimpleFlow bridge: [Agent Integration](/agent-integration)
 - Full from-zero runnable setup: [Zero to Control Plane](/agent-zero-to-control-plane)
 - Canonical payload contract: [Telemetry Envelope V1](/telemetry-envelope-v1)
-- Language-specific references: [Node](/sdk-node), [Python](/sdk-python), [Go](/sdk-go)
+- Language-specific references: [Node](/sdk-node), [Python](/sdk-python), [Go](/sdk-go), [Quick Start with TS snippets](/quickstart)

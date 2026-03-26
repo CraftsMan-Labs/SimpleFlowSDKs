@@ -1,10 +1,10 @@
 # Agent Integration
 
-This page shows how to connect a SimpleAgents workflow execution to SimpleFlow SDK telemetry writes.
+This page shows how to connect SimpleAgents YAML workflow execution to SimpleFlow SDK telemetry and chat writes.
 
 ## Goal
 
-After each workflow turn, write:
+After each workflow run, write:
 
 - a canonical runtime event via `writeEventFromWorkflowResult(...)`
 - optionally, a chat message via `writeChatMessageFromWorkflowResult(...)`
@@ -20,7 +20,19 @@ Always map these IDs from your app context:
 - `request_id`
 - `run_id`
 
-This enables chat history tracing and analytics by user/conversation/day.
+This is what lets SimpleFlow aggregate analytics and chat history per org/user/conversation/day.
+
+## Works with local SimpleAgents repo
+
+If your SimpleAgents project is at:
+
+- `/Users/rishub/Desktop/projects/enterprise/craftsmanlabs/SimpleAgents`
+
+the integration flow is the same:
+
+1. Parse and execute YAML workflow plan in SimpleAgents.
+2. Capture `workflowResult` (`events`, `metadata.trace`, `nerdstats`, timings).
+3. Bridge that result into canonical telemetry-envelope payload with `writeEventFromWorkflowResult(...)`.
 
 ## Node example (SimpleAgents + SimpleFlow SDK)
 
@@ -28,35 +40,62 @@ This enables chat history tracing and analytics by user/conversation/day.
 const { Client: SimpleAgentsClient } = require("simple-agents-node")
 const { SimpleFlowClient } = require("simpleflow-sdk")
 
-const agents = new SimpleAgentsClient("openai")
+const agents = new SimpleAgentsClient(process.env.SIMPLE_AGENTS_PROVIDER || "openai")
 const simpleflow = new SimpleFlowClient({
   baseUrl: process.env.SIMPLEFLOW_BASE_URL,
   apiToken: process.env.SIMPLEFLOW_API_TOKEN,
 })
 
 const workflowResult = agents.runWorkflowYamlWithEvents(
-  "examples/workflow_email/email-chat-draft-or-clarify.yaml",
-  { input: "Draft a follow-up email" },
+  "examples/simpleflow-hr-agent/workflows/email-chat-draft-or-clarify.yaml",
+  {
+    input: {
+      messages: [{ role: "user", content: "Draft a follow-up HR email" }],
+    },
+  },
   {
     trace: {
       tenant: {
-        organization_id: "org_123",
-        user_id: "user_123",
-        conversation_id: "chat_123",
-        request_id: "req_123",
-        run_id: "run_123",
+        organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
+        user_id: process.env.SIMPLEFLOW_USER_ID,
+        conversation_id: "chat_local_demo",
+        request_id: "req_local_demo",
+        run_id: "run_local_demo",
       },
     },
   }
 )
 
 await simpleflow.writeEventFromWorkflowResult({
-  agentId: "agent_support_v1",
-  organizationId: "org_123",
-  userId: "user_123",
+  agentId: process.env.SIMPLEFLOW_AGENT_ID,
+  organizationId: process.env.SIMPLEFLOW_ORGANIZATION_ID,
+  userId: process.env.SIMPLEFLOW_USER_ID,
   workflowResult,
+  eventType: "runtime.workflow.completed",
 })
 ```
+
+## Optional: bridge workflow result to runtime chat messages
+
+```js
+await simpleflow.writeChatMessageFromWorkflowResult({
+  agentId: process.env.SIMPLEFLOW_AGENT_ID,
+  organizationId: process.env.SIMPLEFLOW_ORGANIZATION_ID,
+  runId: "run_local_demo",
+  role: "assistant",
+  workflowResult,
+  chatId: "chat_local_demo",
+  messageId: "msg_local_demo",
+  traceId: "trace_local_demo",
+})
+```
+
+## Code layout for this integration
+
+- `examples/simpleflow-hr-agent/scripts/sync-workflow.js` - syncs YAML workflow file from template location into local example.
+- `examples/simpleflow-hr-agent/scripts/run-local-agent.js` - parses/runs YAML plan with SimpleAgents and sends telemetry with `writeEventFromWorkflowResult(...)`.
+- `examples/simpleflow-hr-agent/scripts/register-runtime.js` - registers runtime endpoint in control plane.
+- `examples/simpleflow-hr-agent/scripts/invoke-control-plane.js` - validates `POST /v1/runtime/invoke` end-to-end.
 
 ## Streaming and thinking telemetry
 
@@ -68,9 +107,7 @@ SIMPLE_AGENTS_WORKFLOW_STREAM_INCLUDE_RAW=1 make run-node-chat-history
 
 Then bridge final result to SimpleFlow via `writeEventFromWorkflowResult(...)` so `nerdstats` and usage summaries remain queryable.
 
-## Want a full project from zero?
-
-If you want the complete setup (project scaffold, workflow sync, runtime connect, local run, and invoke verification via IdP tokens), use:
+## Want full from-zero setup?
 
 - [Zero to Control Plane](/agent-zero-to-control-plane)
-- runnable example project: `examples/simpleflow-hr-agent`
+- runnable reference project: `examples/simpleflow-hr-agent`
