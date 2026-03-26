@@ -2,65 +2,37 @@
 
 Language SDKs for integrating remote runtimes with the SimpleFlow control plane.
 
-If you are landing here for the first time, you can copy/paste the examples below and start writing telemetry, chat, auth, and workflow bridge events immediately.
+If you are landing here for the first time, use the quick links below and you can be running in minutes.
 
-## Start in 5 minutes
+## Start here
 
 ### 1) Install an SDK
 
-JavaScript (Node):
-
 ```bash
+# JavaScript / TypeScript
 npm install simpleflow-sdk
-```
 
-TypeScript (Node + TS):
-
-```bash
-npm install simpleflow-sdk
-```
-
-Python:
-
-```bash
+# Python
 pip install simpleflow-sdk
-```
 
-Go:
-
-```bash
+# Go
 go get github.com/craftsman-labs/simpleflow/sdk/go/simpleflow
 ```
 
 ### 2) Choose auth (pick one)
 
-Option A - API token (fastest):
+- `SIMPLEFLOW_API_TOKEN` (fastest)
+- `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET` (OAuth client credentials)
+
+Required base env:
 
 ```bash
 export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export SIMPLEFLOW_API_TOKEN="<machine_runtime_token>"
-```
-
-Option B - machine client credentials (`MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`):
-
-```bash
-export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export MACHINE_CLIENT_ID="<machine_client_id>"
-export MACHINE_CLIENT_SECRET="<machine_client_secret>"
-```
-
-For Go, exchange machine credentials for an access token first, then set `SIMPLEFLOW_API_TOKEN`:
-
-```bash
-export SIMPLEFLOW_API_TOKEN="$(curl -sS -X POST "$SIMPLEFLOW_BASE_URL/v1/oauth/token" \
-  -H "Content-Type: application/json" \
-  -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"$MACHINE_CLIENT_ID\",\"client_secret\":\"$MACHINE_CLIENT_SECRET\"}" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 ```
 
 ### 3) Set identity env
 
-Common runtime + telemetry env used in examples:
+Typical runtime identity keys:
 
 - `SIMPLEFLOW_AGENT_ID`
 - `SIMPLEFLOW_AGENT_VERSION`
@@ -68,176 +40,14 @@ Common runtime + telemetry env used in examples:
 - `SIMPLEFLOW_USER_ID`
 - `SIMPLEFLOW_RUNTIME_ID`
 - `RUNTIME_ENDPOINT_URL`
-- `SIMPLEFLOW_USER_BEARER` (for user-scoped chat history APIs)
+- `SIMPLEFLOW_USER_BEARER` (only for user-scoped chat history APIs)
 
-Copy/paste identity env template:
+### 4) Copy/paste snippets by language
 
-```bash
-export SIMPLEFLOW_AGENT_ID="hr-agent-runtime"
-export SIMPLEFLOW_AGENT_VERSION="v1"
-export SIMPLEFLOW_ORGANIZATION_ID="org_local_demo"
-export SIMPLEFLOW_USER_ID="user_local_demo"
-export SIMPLEFLOW_RUNTIME_ID="runtime_local_hr_agent"
-export RUNTIME_ENDPOINT_URL="http://localhost:8092"
-export SIMPLEFLOW_USER_BEARER="<user_bearer_token>"
-```
-
-### 4) Copy/paste quick usage
-
-#### JavaScript (Node)
-
-```js
-const crypto = require("node:crypto")
-const { SimpleFlowClient } = require("simpleflow-sdk")
-
-const client = new SimpleFlowClient({
-  baseUrl: process.env.SIMPLEFLOW_BASE_URL,
-  apiToken: process.env.SIMPLEFLOW_API_TOKEN,
-  oauthClientId: process.env.MACHINE_CLIENT_ID,
-  oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
-})
-
-await client.writeEvent({
-  event_type: "runtime.invoke.accepted",
-  agent_id: process.env.SIMPLEFLOW_AGENT_ID,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
-  user_id: process.env.SIMPLEFLOW_USER_ID,
-  run_id: `run_${crypto.randomUUID().slice(0, 8)}`,
-  payload: { source: "js-quickstart" },
-})
-
-await client.writeChatMessage({
-  agent_id: process.env.SIMPLEFLOW_AGENT_ID,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
-  run_id: `run_${crypto.randomUUID().slice(0, 8)}`,
-  chat_id: "chat_local_demo",
-  role: "assistant",
-  content: { text: "Hello from JS SDK" },
-})
-
-const telemetry = client.withTelemetry({ mode: "simpleflow", sampleRate: 1.0 })
-await telemetry.emitSpan({
-  agentId: process.env.SIMPLEFLOW_AGENT_ID,
-  runId: "run_local_demo",
-  traceId: "trace_local_demo",
-  span: { name: "llm.call", start_time_ms: 1000, end_time_ms: 1300 },
-})
-
-const messages = await client.listChatHistoryMessages({
-  agentId: process.env.SIMPLEFLOW_AGENT_ID,
-  chatId: "chat_local_demo",
-  userId: process.env.SIMPLEFLOW_USER_ID,
-  authToken: process.env.SIMPLEFLOW_USER_BEARER,
-})
-
-console.log("chat_history_count", messages.length)
-```
-
-#### TypeScript
-
-```ts
-import { SimpleFlowClient } from "simpleflow-sdk"
-
-const client = new SimpleFlowClient({
-  baseUrl: process.env.SIMPLEFLOW_BASE_URL!,
-  apiToken: process.env.SIMPLEFLOW_API_TOKEN,
-  oauthClientId: process.env.MACHINE_CLIENT_ID,
-  oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
-})
-
-await client.writeEvent({
-  event_type: "runtime.workflow.completed",
-  agent_id: process.env.SIMPLEFLOW_AGENT_ID!,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID!,
-  user_id: process.env.SIMPLEFLOW_USER_ID!,
-  run_id: "run_ts_demo",
-  conversation_id: "chat_ts_demo",
-  request_id: "req_ts_demo",
-  payload: { source: "ts-quickstart" },
-})
-```
-
-#### Python
-
-```python
-import os
-from simpleflow_sdk import SimpleFlowClient
-
-client = SimpleFlowClient(
-    base_url=os.environ["SIMPLEFLOW_BASE_URL"],
-    api_token=os.getenv("SIMPLEFLOW_API_TOKEN"),
-    oauth_client_id=os.getenv("MACHINE_CLIENT_ID"),
-    oauth_client_secret=os.getenv("MACHINE_CLIENT_SECRET"),
-)
-
-client.write_event(
-    {
-        "event_type": "runtime.workflow.completed",
-        "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
-        "organization_id": os.environ["SIMPLEFLOW_ORGANIZATION_ID"],
-        "user_id": os.environ["SIMPLEFLOW_USER_ID"],
-        "run_id": "run_py_demo",
-        "payload": {"source": "python-quickstart"},
-    }
-)
-
-client.write_chat_message(
-    {
-        "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
-        "organization_id": os.environ["SIMPLEFLOW_ORGANIZATION_ID"],
-        "run_id": "run_py_demo",
-        "chat_id": "chat_py_demo",
-        "role": "assistant",
-        "content": {"text": "Hello from Python SDK"},
-    }
-)
-
-telemetry = client.with_telemetry(mode="simpleflow", sample_rate=1.0)
-telemetry.emit_span(
-    agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
-    run_id="run_py_demo",
-    trace_id="trace_py_demo",
-    span={"name": "llm.call", "start_time_ms": 1000, "end_time_ms": 1200},
-)
-```
-
-#### Go
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    "os"
-
-    "github.com/craftsman-labs/simpleflow/sdk/go/simpleflow"
-)
-
-func main() {
-    ctx := context.Background()
-
-    client, err := simpleflow.NewClient(simpleflow.ClientConfig{
-        BaseURL:  os.Getenv("SIMPLEFLOW_BASE_URL"),
-        APIToken: os.Getenv("SIMPLEFLOW_API_TOKEN"),
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    err = client.WriteEvent(ctx, simpleflow.RuntimeEvent{
-        Type:           "runtime.workflow.completed",
-        AgentID:        os.Getenv("SIMPLEFLOW_AGENT_ID"),
-        OrganizationID: os.Getenv("SIMPLEFLOW_ORGANIZATION_ID"),
-        UserID:         os.Getenv("SIMPLEFLOW_USER_ID"),
-        RunID:          "run_go_demo",
-        Payload:        map[string]any{"source": "go-quickstart"},
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-}
-```
+- JS/TS/Python/Go quickstart snippets: `docs/quickstart.md`
+- Node integration (auth, telemetry, chat, workflow): `docs/sdk-node-integration.md`
+- Python integration (auth, telemetry, chat, workflow): `docs/sdk-python-integration.md`
+- Go integration (auth, telemetry, chat, workflow): `docs/sdk-go-integration.md`
 
 ## Works with SimpleAgents (YAML workflow -> SimpleFlow telemetry)
 
