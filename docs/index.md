@@ -37,6 +37,7 @@ features:
 ## Start Here
 
 - New integration: [Quick Start](/quickstart)
+- Shared auth/env flow: [SDK Integration Common Guide](/sdk-integration-common)
 - SimpleAgents to SimpleFlow bridge: [Agent Integration](/agent-integration)
 - Full from-zero runnable setup: [Zero to Control Plane](/agent-zero-to-control-plane)
 - Canonical payload contract: [Telemetry Envelope V1](/telemetry-envelope-v1)

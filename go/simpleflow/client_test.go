@@ -5,9 +5,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func loadJSONFixtureMap(t *testing.T, fixturePath string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	fixture := map[string]any{}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	return fixture
+}
 
 func TestWriteEventFromWorkflowResult(t *testing.T) {
 	var captured map[string]any
@@ -286,5 +301,97 @@ func TestListChatHistoryMessages(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0].MessageID != "m1" {
 		t.Fatalf("unexpected messages: %+v", messages)
+	}
+}
+
+func TestContractFixtureTelemetryEnvelopeWorkflowBasic(t *testing.T) {
+	fixturePath := filepath.Join("..", "..", "contracts", "telemetry-envelope-v1", "workflow_basic.json")
+	fixture := loadJSONFixtureMap(t, fixturePath)
+
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	if err := client.WriteEventFromWorkflowResult(context.Background(), WriteEventFromWorkflowResultInput{
+		AgentID:        fixture["agent_id"].(string),
+		WorkflowResult: fixture["workflow_result"],
+	}); err != nil {
+		t.Fatalf("write event from workflow result: %v", err)
+	}
+
+	expectedEvent := fixture["expected_event"].(map[string]any)
+	if got := captured["event_type"]; got != expectedEvent["event_type"] {
+		t.Fatalf("unexpected event_type: %v", got)
+	}
+	if got := captured["trace_id"]; got != expectedEvent["trace_id"] {
+		t.Fatalf("unexpected trace_id: %v", got)
+	}
+	if got := captured["conversation_id"]; got != expectedEvent["conversation_id"] {
+		t.Fatalf("unexpected conversation_id: %v", got)
+	}
+	if got := captured["request_id"]; got != expectedEvent["request_id"] {
+		t.Fatalf("unexpected request_id: %v", got)
+	}
+
+	expectedPayload := fixture["expected_payload"].(map[string]any)
+	payload := captured["payload"].(map[string]any)
+	if got := payload["schema_version"]; got != expectedPayload["schema_version"] {
+		t.Fatalf("unexpected schema_version: %v", got)
+	}
+	usage := payload["usage"].(map[string]any)
+	expectedUsage := expectedPayload["usage"].(map[string]any)
+	if got := usage["total_tokens"]; got != expectedUsage["total_tokens"] {
+		t.Fatalf("unexpected usage.total_tokens: %v", got)
+	}
+	if got := usage["reasoning_tokens"]; got != expectedUsage["reasoning_tokens"] {
+		t.Fatalf("unexpected usage.reasoning_tokens: %v", got)
+	}
+	modelUsage := payload["model_usage"].([]any)
+	expectedFirstModel := expectedPayload["model_usage_first"].(map[string]any)
+	if got := modelUsage[0].(map[string]any)["model"]; got != expectedFirstModel["model"] {
+		t.Fatalf("unexpected model_usage[0].model: %v", got)
+	}
+}
+
+func TestContractFixtureRuntimeRegistrationActionPaths(t *testing.T) {
+	fixturePath := filepath.Join("..", "..", "contracts", "runtime-registration", "action_path_cases.json")
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	fixture := struct {
+		Cases []struct {
+			Template       string `json:"template"`
+			RegistrationID string `json:"registration_id"`
+			Expected       string `json:"expected"`
+		} `json:"cases"`
+	}{}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	client, err := NewClient(ClientConfig{BaseURL: "https://api.example"})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	for i := range fixture.Cases {
+		actual, err := client.runtimeRegistrationActionPath(fixture.Cases[i].Template, fixture.Cases[i].RegistrationID)
+		if err != nil {
+			t.Fatalf("case %d unexpected error: %v", i, err)
+		}
+		if actual != fixture.Cases[i].Expected {
+			t.Fatalf("case %d expected %q got %q", i, fixture.Cases[i].Expected, actual)
+		}
 	}
 }

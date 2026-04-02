@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -335,6 +336,16 @@ type WriteEventFromWorkflowResultInput struct {
 	IncludeRaw     bool
 }
 
+type workflowEventContext struct {
+	OrganizationID string
+	UserID         string
+	RunID          string
+	TraceID        string
+	ConversationID string
+	RequestID      string
+	Sampled        *bool
+}
+
 func (c *Client) WriteEventFromWorkflowResult(ctx context.Context, input WriteEventFromWorkflowResultInput) error {
 	agentID := strings.TrimSpace(input.AgentID)
 	if agentID == "" {
@@ -350,7 +361,38 @@ func (c *Client) WriteEventFromWorkflowResult(ctx context.Context, input WriteEv
 		return err
 	}
 
-	metadata := nestedMap(normalizedResult, "metadata")
+	resolved := resolveWorkflowEventContext(normalizedResult, input)
+	canonicalPayload := buildCanonicalTelemetryEnvelope(
+		normalizedResult,
+		agentID,
+		resolved.OrganizationID,
+		resolved.UserID,
+		resolved.RunID,
+		resolved.TraceID,
+		resolved.ConversationID,
+		resolved.RequestID,
+		resolved.Sampled,
+		input.IncludeRaw,
+	)
+
+	event := RuntimeEvent{
+		Type:           eventType,
+		AgentID:        agentID,
+		OrganizationID: resolved.OrganizationID,
+		UserID:         resolved.UserID,
+		RunID:          resolved.RunID,
+		ConversationID: resolved.ConversationID,
+		RequestID:      resolved.RequestID,
+		TraceID:        resolved.TraceID,
+		Sampled:        resolved.Sampled,
+		Payload:        canonicalPayload,
+	}
+
+	return c.WriteEvent(ctx, event)
+}
+
+func resolveWorkflowEventContext(workflowResult map[string]any, input WriteEventFromWorkflowResultInput) workflowEventContext {
+	metadata := nestedMap(workflowResult, "metadata")
 	telemetry := nestedMap(metadata, "telemetry")
 	trace := nestedMap(metadata, "trace")
 	tenant := nestedMap(trace, "tenant")
@@ -365,28 +407,28 @@ func (c *Client) WriteEventFromWorkflowResult(ctx context.Context, input WriteEv
 	}
 	runID := stringValue(tenant, "run_id")
 	if runID == "" {
-		runID = stringValue(normalizedResult, "run_id")
+		runID = stringValue(workflowResult, "run_id")
 	}
-	organizationID := firstNonEmpty(strings.TrimSpace(input.OrganizationID), stringValue(tenant, "organization_id"), stringValue(trace, "organization_id"), stringValue(normalizedResult, "organization_id"))
-	userID := firstNonEmpty(strings.TrimSpace(input.UserID), stringValue(tenant, "user_id"), stringValue(trace, "user_id"), stringValue(normalizedResult, "user_id"))
-	traceID := stringValue(telemetry, "trace_id")
-	sampled := boolPointerValue(telemetry, "sampled")
-	canonicalPayload := buildCanonicalTelemetryEnvelope(normalizedResult, agentID, organizationID, userID, runID, traceID, conversationID, requestID, sampled, input.IncludeRaw)
 
-	event := RuntimeEvent{
-		Type:           eventType,
-		AgentID:        agentID,
-		OrganizationID: organizationID,
-		UserID:         userID,
+	return workflowEventContext{
+		OrganizationID: firstNonEmpty(
+			strings.TrimSpace(input.OrganizationID),
+			stringValue(tenant, "organization_id"),
+			stringValue(trace, "organization_id"),
+			stringValue(workflowResult, "organization_id"),
+		),
+		UserID: firstNonEmpty(
+			strings.TrimSpace(input.UserID),
+			stringValue(tenant, "user_id"),
+			stringValue(trace, "user_id"),
+			stringValue(workflowResult, "user_id"),
+		),
 		RunID:          runID,
+		TraceID:        stringValue(telemetry, "trace_id"),
 		ConversationID: conversationID,
 		RequestID:      requestID,
-		TraceID:        traceID,
-		Sampled:        sampled,
-		Payload:        canonicalPayload,
+		Sampled:        boolPointerValue(telemetry, "sampled"),
 	}
-
-	return c.WriteEvent(ctx, event)
 }
 
 func buildCanonicalTelemetryEnvelope(
@@ -633,8 +675,41 @@ func stringAny(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
+	case fmt.Stringer:
+		return v.String()
+	case []byte:
+		return string(v)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case int:
+		return strconv.Itoa(v)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
 	default:
-		return fmt.Sprintf("%v", value)
+		return fmt.Sprint(value)
 	}
 }
 
@@ -762,9 +837,25 @@ func (c *Client) postJSONWithResponse(ctx context.Context, path string, body any
 }
 
 func (c *Client) postJSONWithResponseAndHeaders(ctx context.Context, path string, body any, out any, extraHeaders map[string]string) error {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: marshal body: %w", err)
+	return c.doJSON(ctx, http.MethodPost, path, body, out, extraHeaders, true)
+}
+
+func (c *Client) patchJSONWithResponse(ctx context.Context, path string, body any, out any) error {
+	return c.doJSON(ctx, http.MethodPatch, path, body, out, nil, true)
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	return c.doJSON(ctx, http.MethodGet, path, nil, out, nil, false)
+}
+
+func (c *Client) doJSON(ctx context.Context, method string, path string, body any, out any, extraHeaders map[string]string, hasJSONBody bool) error {
+	var reader io.Reader
+	if hasJSONBody {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("simpleflow sdk request error: marshal body: %w", err)
+		}
+		reader = bytes.NewReader(payload)
 	}
 
 	relativePath := strings.TrimSpace(path)
@@ -773,11 +864,13 @@ func (c *Client) postJSONWithResponseAndHeaders(ctx context.Context, path string
 	}
 
 	endpoint := c.baseURL.JoinPath(relativePath)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reader)
 	if err != nil {
 		return fmt.Errorf("simpleflow sdk request error: build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if hasJSONBody {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.apiToken != "" {
 		req.Header.Set("Authorization", c.authorizationScheme+" "+c.apiToken)
 	}
@@ -798,87 +891,10 @@ func (c *Client) postJSONWithResponseAndHeaders(ctx context.Context, path string
 		return fmt.Errorf("simpleflow sdk request error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 
-	if out != nil {
-		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
-		if err != nil {
-			return fmt.Errorf("simpleflow sdk request error: read response body: %w", err)
-		}
-		if len(responseBody) == 0 {
-			return fmt.Errorf("simpleflow sdk request error: empty response body")
-		}
-		if err := json.Unmarshal(responseBody, out); err != nil {
-			return fmt.Errorf("simpleflow sdk request error: decode response body: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (c *Client) patchJSONWithResponse(ctx context.Context, path string, body any, out any) error {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: marshal body: %w", err)
-	}
-	relativePath := strings.TrimSpace(path)
-	if !strings.HasPrefix(relativePath, "/") {
-		relativePath = "/" + relativePath
-	}
-	endpoint := c.baseURL.JoinPath(relativePath)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint.String(), bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.apiToken != "" {
-		req.Header.Set("Authorization", c.authorizationScheme+" "+c.apiToken)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: send request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("simpleflow sdk request error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
 	if out == nil {
 		return nil
 	}
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: read response body: %w", err)
-	}
-	if len(responseBody) == 0 {
-		return fmt.Errorf("simpleflow sdk request error: empty response body")
-	}
-	if err = json.Unmarshal(responseBody, out); err != nil {
-		return fmt.Errorf("simpleflow sdk request error: decode response body: %w", err)
-	}
-	return nil
-}
 
-func (c *Client) getJSON(ctx context.Context, path string, out any) error {
-	relativePath := strings.TrimSpace(path)
-	if !strings.HasPrefix(relativePath, "/") {
-		relativePath = "/" + relativePath
-	}
-	endpoint := c.baseURL.JoinPath(relativePath)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: build request: %w", err)
-	}
-	if c.apiToken != "" {
-		req.Header.Set("Authorization", c.authorizationScheme+" "+c.apiToken)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("simpleflow sdk request error: send request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("simpleflow sdk request error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if err != nil {
 		return fmt.Errorf("simpleflow sdk request error: read response body: %w", err)
@@ -886,9 +902,10 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	if len(responseBody) == 0 {
 		return fmt.Errorf("simpleflow sdk request error: empty response body")
 	}
-	if err = json.Unmarshal(responseBody, out); err != nil {
+	if err := json.Unmarshal(responseBody, out); err != nil {
 		return fmt.Errorf("simpleflow sdk request error: decode response body: %w", err)
 	}
+
 	return nil
 }
 

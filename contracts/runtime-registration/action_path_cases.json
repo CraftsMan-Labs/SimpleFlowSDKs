@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "template": "/v1/runtime/registrations/{registration_id}/validate",
+      "registration_id": "reg_123",
+      "expected": "/v1/runtime/registrations/reg_123/validate"
+    },
+    {
+      "template": "/v1/runtime/registrations/",
+      "registration_id": "reg_abc",
+      "expected": "/v1/runtime/registrations/reg_abc"
+    },
+    {
+      "template": "/v1/runtime/registrations",
+      "registration_id": "reg_xyz",
+      "expected": "/v1/runtime/registrations/reg_xyz"
+    }
+  ]
+}

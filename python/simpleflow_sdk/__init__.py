@@ -17,6 +17,15 @@ from .contracts import (
     TelemetrySpan,
     WorkflowTraceTenant,
 )
+from .response_models import (
+    ChatSession,
+    InvokeResult,
+    ModelUsageRow,
+    RuntimeActivationResult,
+    TelemetryEnvelopeV1,
+    ToolUsageRow,
+    UsageSummary,
+)
 
 __all__ = [
     "SimpleFlowClient",
@@ -34,4 +43,11 @@ __all__ = [
     "RuntimeRegistration",
     "TelemetrySpan",
     "WorkflowTraceTenant",
+    "TelemetryEnvelopeV1",
+    "UsageSummary",
+    "ModelUsageRow",
+    "ToolUsageRow",
+    "RuntimeActivationResult",
+    "InvokeResult",
+    "ChatSession",
 ]

@@ -1,6 +1,96 @@
 "use strict";
 
 const DEFAULT_TIMEOUT_MS = 10000;
+const ALLOWED_EVENT_KEYS = new Set([
+  "agent_id",
+  "organization_id",
+  "user_id",
+  "run_id",
+  "event_type",
+  "trace_id",
+  "conversation_id",
+  "request_id",
+  "sampled",
+  "payload",
+]);
+const ALLOWED_CHAT_MESSAGE_KEYS = new Set([
+  "agent_id",
+  "organization_id",
+  "run_id",
+  "chat_id",
+  "message_id",
+  "role",
+  "direction",
+  "content",
+  "metadata",
+]);
+
+/**
+ * @typedef {Object} UsageSummary
+ * @property {number|null} prompt_tokens
+ * @property {number|null} completion_tokens
+ * @property {number|null} total_tokens
+ * @property {number|null} reasoning_tokens
+ * @property {number|null} ttft_ms
+ * @property {number|null} total_elapsed_ms
+ * @property {number|null} tokens_per_second
+ * @property {boolean} token_metrics_available
+ * @property {string|null} token_metrics_source
+ * @property {string[]} llm_nodes_without_usage
+ */
+
+/**
+ * @typedef {Object} ModelUsageRow
+ * @property {string} model
+ * @property {number} request_count
+ * @property {number} prompt_tokens
+ * @property {number} completion_tokens
+ * @property {number} total_tokens
+ * @property {number} reasoning_tokens
+ * @property {number} elapsed_ms
+ */
+
+/**
+ * @typedef {Object} ToolUsageRow
+ * @property {string} tool
+ * @property {number} started_count
+ * @property {number} completed_count
+ * @property {number} error_count
+ */
+
+/**
+ * @typedef {Object} TelemetryEnvelopeV1
+ * @property {"telemetry-envelope.v1"} schema_version
+ * @property {{organization_id:string, agent_id:string, user_id:string}} identity
+ * @property {{trace_id:string, span_id:string, tenant_id:string, conversation_id:string, request_id:string, run_id:string, sampled:boolean}} trace
+ * @property {{workflow_id:string, terminal_node:string, status:string, total_elapsed_ms:number, ttft_ms:number|null}} workflow
+ * @property {UsageSummary} usage
+ * @property {ModelUsageRow[]} model_usage
+ * @property {ToolUsageRow[]} tool_usage
+ * @property {Object.<string, number>} event_counts
+ * @property {Object<string, any>=} nerdstats
+ * @property {Object<string, any>=} raw
+ */
+
+/**
+ * @typedef {Object} RuntimeActivationResult
+ * @property {"active"} status
+ * @property {Object<string, any>} registration
+ * @property {string} registration_id
+ * @property {Object<string, any>=} validation
+ * @property {boolean} created
+ * @property {boolean} validated
+ * @property {boolean} activated
+ */
+
+/**
+ * @typedef {Object} ChatSession
+ * @property {string} chat_id
+ * @property {string=} status
+ * @property {string=} agent_id
+ * @property {string=} user_id
+ * @property {Object<string, any>=} metadata
+ */
 
 class SimpleFlowRequestError extends Error {
   constructor({ statusCode, detail, path }) {
@@ -19,6 +109,48 @@ function normalizePayload(payload) {
   if (payload == null) return {};
   if (typeof payload === "object" && !Array.isArray(payload)) return payload;
   throw new TypeError("simpleflow sdk payload error: payload must be an object or null");
+}
+
+function normalizeRuntimeActivationResult(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const registration = source.registration && typeof source.registration === "object" ? source.registration : {};
+  const result = {
+    status: "active",
+    registration,
+    registration_id: String(source.registration_id || "").trim(),
+    created: Boolean(source.created),
+    validated: Boolean(source.validated),
+    activated: Boolean(source.activated),
+  };
+  if (source.validation && typeof source.validation === "object") {
+    result.validation = source.validation;
+  }
+  return result;
+}
+
+function normalizeInvokeResult(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const result = {};
+  if (typeof source.schema_version === "string") result.schema_version = source.schema_version;
+  if (typeof source.run_id === "string") result.run_id = source.run_id;
+  if (typeof source.status === "string") result.status = source.status;
+  if (source.output && typeof source.output === "object" && !Array.isArray(source.output)) result.output = source.output;
+  if (source.error && typeof source.error === "object" && !Array.isArray(source.error)) result.error = source.error;
+  if (source.metrics && typeof source.metrics === "object" && !Array.isArray(source.metrics)) result.metrics = source.metrics;
+  return result;
+}
+
+function normalizeChatSession(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const session = {};
+  if (typeof source.chat_id === "string") session.chat_id = source.chat_id;
+  if (typeof source.status === "string") session.status = source.status;
+  if (typeof source.agent_id === "string") session.agent_id = source.agent_id;
+  if (typeof source.user_id === "string") session.user_id = source.user_id;
+  if (source.metadata && typeof source.metadata === "object" && !Array.isArray(source.metadata)) {
+    session.metadata = source.metadata;
+  }
+  return session;
 }
 
 function shouldSample(traceId, sampleRate) {
@@ -325,7 +457,26 @@ class SimpleFlowClient {
       agentVersion: requestedAgentVersion,
       authToken,
     });
-    for (const item of existing) {
+    const active = this._activeRuntimeRegistrationResult(existing);
+    if (active) return normalizeRuntimeActivationResult(active);
+
+    const { target, created } = await this._resolveRegistrationTarget({ existing, payload, authToken });
+    const registrationId = this._registrationIdOrThrow(target);
+    const validation = await this.validateRuntimeRegistration(registrationId, { authToken });
+    await this.activateRuntimeRegistration(registrationId, { authToken });
+    return normalizeRuntimeActivationResult({
+      status: "active",
+      registration: target,
+      registration_id: registrationId,
+      validation,
+      created,
+      validated: true,
+      activated: true,
+    });
+  }
+
+  _activeRuntimeRegistrationResult(registrations) {
+    for (const item of registrations) {
       if (String(item.status || "").trim().toLowerCase() === "active") {
         return {
           status: "active",
@@ -337,52 +488,39 @@ class SimpleFlowClient {
         };
       }
     }
-    let target = existing[0] || null;
-    let created = false;
-    if (!target) {
-      target = await this.registerRuntime(payload, { authToken });
-      created = true;
+    return null;
+  }
+
+  async _resolveRegistrationTarget({ existing, payload, authToken }) {
+    if (existing.length > 0) {
+      return { target: existing[0], created: false };
     }
-    const registrationId = String(target.id || target.registration_id || "").trim();
-    if (!registrationId) {
-      throw new SimpleFlowLifecycleError({ statusCode: 502, detail: "registration response did not include registration id", path: this.runtimeRegisterPath });
-    }
-    const validation = await this.validateRuntimeRegistration(registrationId, { authToken });
-    await this.activateRuntimeRegistration(registrationId, { authToken });
-    return {
-      status: "active",
-      registration: target,
-      registration_id: registrationId,
-      validation,
-      created,
-      validated: true,
-      activated: true,
-    };
+    const target = await this.registerRuntime(payload, { authToken });
+    return { target, created: true };
+  }
+
+  _registrationIdOrThrow(registration) {
+    const registrationId = String(registration.id || registration.registration_id || "").trim();
+    if (registrationId) return registrationId;
+    throw new SimpleFlowLifecycleError({ statusCode: 502, detail: "registration response did not include registration id", path: this.runtimeRegisterPath });
   }
 
   async invoke(request, { authToken } = {}) {
-    return this._post(this.runtimeInvokePath, request, { authToken });
+    return this.invokeTyped(request, { authToken });
+  }
+
+  async invokeTyped(request, { authToken } = {}) {
+    const response = await this._post(this.runtimeInvokePath, request, { authToken });
+    return normalizeInvokeResult(response);
   }
 
   async writeEvent(event) {
     const body = normalizePayload(event);
     const eventType = String(body.event_type || body.type || "").trim();
     const idempotencyKey = String(body.idempotency_key || "").trim();
-    const allowedKeys = new Set([
-      "agent_id",
-      "organization_id",
-      "user_id",
-      "run_id",
-      "event_type",
-      "trace_id",
-      "conversation_id",
-      "request_id",
-      "sampled",
-      "payload",
-    ]);
     const sanitized = { event_type: eventType };
     for (const [key, value] of Object.entries(body)) {
-      if (allowedKeys.has(key)) sanitized[key] = value;
+      if (ALLOWED_EVENT_KEYS.has(key)) sanitized[key] = value;
     }
     const headers = {};
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
@@ -396,20 +534,9 @@ class SimpleFlowClient {
   async writeChatMessage(message) {
     const body = normalizePayload(message);
     const idempotencyKey = String(body.idempotency_key || "").trim();
-    const allowedKeys = new Set([
-      "agent_id",
-      "organization_id",
-      "run_id",
-      "chat_id",
-      "message_id",
-      "role",
-      "direction",
-      "content",
-      "metadata",
-    ]);
     const sanitized = {};
     for (const [key, value] of Object.entries(body)) {
-      if (allowedKeys.has(key)) sanitized[key] = value;
+      if (ALLOWED_CHAT_MESSAGE_KEYS.has(key)) sanitized[key] = value;
     }
     if (!sanitized.direction) sanitized.direction = "outbound";
     if (sanitized.content == null) sanitized.content = {};
@@ -446,6 +573,10 @@ class SimpleFlowClient {
   }
 
   async listChatSessions({ agentId, userId, status = "active", limit = 50, authToken } = {}) {
+    return this.listChatSessionsTyped({ agentId, userId, status, limit, authToken });
+  }
+
+  async listChatSessionsTyped({ agentId, userId, status = "active", limit = 50, authToken } = {}) {
     const path = this._pathWithQuery(this.chatSessionsPath, {
       agent_id: agentId,
       user_id: userId,
@@ -453,7 +584,8 @@ class SimpleFlowClient {
       limit,
     });
     const response = await this._get(path, { authToken });
-    return Array.isArray(response.sessions) ? response.sessions.filter((x) => x && typeof x === "object") : [];
+    if (!Array.isArray(response.sessions)) return [];
+    return response.sessions.filter((x) => x && typeof x === "object").map((session) => normalizeChatSession(session));
   }
 
   async createChatHistoryMessage(message, { authToken } = {}) {
@@ -474,6 +606,36 @@ class SimpleFlowClient {
     includeRaw = false,
   }) {
     const normalizedResult = normalizePayload(workflowResult);
+    const context = this._resolveWorkflowEventContext({ normalizedResult, organizationId, userId });
+
+    const payload = buildCanonicalTelemetryEnvelope({
+      workflowResult: normalizedResult,
+      agentId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      runId: context.runId,
+      traceId: context.traceId,
+      conversationId: context.conversationId,
+      requestId: context.requestId,
+      sampled: context.sampledForEnvelope,
+      includeRaw,
+    });
+
+    await this.writeEvent({
+      event_type: eventType,
+      agent_id: String(agentId || "").trim(),
+      organization_id: context.organizationId,
+      user_id: context.userId,
+      run_id: context.runId,
+      conversation_id: context.conversationId,
+      request_id: context.requestId,
+      trace_id: context.traceId,
+      sampled: context.sampledForEvent,
+      payload,
+    });
+  }
+
+  _resolveWorkflowEventContext({ normalizedResult, organizationId, userId }) {
     const metadata = normalizedResult.metadata && typeof normalizedResult.metadata === "object" ? normalizedResult.metadata : {};
     const telemetry = metadata.telemetry && typeof metadata.telemetry === "object" ? metadata.telemetry : {};
     const trace = metadata.trace && typeof metadata.trace === "object" ? metadata.trace : {};
@@ -485,33 +647,17 @@ class SimpleFlowClient {
     const resolvedOrganizationId = String(organizationId || tenant.organization_id || trace.organization_id || normalizedResult.organization_id || "").trim();
     const resolvedUserId = String(userId || tenant.user_id || trace.user_id || normalizedResult.user_id || "").trim();
     const traceId = String(telemetry.trace_id || "").trim();
-    const sampled = typeof telemetry.sampled === "boolean" ? telemetry.sampled : true;
-
-    const payload = buildCanonicalTelemetryEnvelope({
-      workflowResult: normalizedResult,
-      agentId,
+    const sampledForEvent = typeof telemetry.sampled === "boolean" ? telemetry.sampled : true;
+    return {
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
       runId,
       traceId,
       conversationId,
       requestId,
-      sampled,
-      includeRaw,
-    });
-
-    await this.writeEvent({
-      event_type: eventType,
-      agent_id: String(agentId || "").trim(),
-      organization_id: resolvedOrganizationId,
-      user_id: resolvedUserId,
-      run_id: runId,
-      conversation_id: conversationId,
-      request_id: requestId,
-      trace_id: traceId,
-      sampled,
-      payload,
-    });
+      sampledForEvent,
+      sampledForEnvelope: sampledForEvent,
+    };
   }
 
   async writeChatMessageFromWorkflowResult({

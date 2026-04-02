@@ -1,0 +1,40 @@
+name: Repo Hygiene
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard-generated-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail on tracked generated artifacts
+        run: |
+          set -euo pipefail
+          blocked_patterns=(
+            '(^|/)node_modules/'
+            '(^|/)dist/'
+            '(^|/)build/'
+            '(^|/)\.vitepress/dist/'
+            '(^|/)\.vitepress/cache/'
+            '(^|/)__pycache__/'
+            '\.pyc$'
+            '\.egg-info/'
+          )
+
+          for pattern in "${blocked_patterns[@]}"; do
+            if git ls-files | grep -E "$pattern" >/dev/null 2>&1; then
+              echo "Tracked generated artifact matched pattern: $pattern"
+              git ls-files | grep -E "$pattern" || true
+              exit 1
+            fi
+          done
+
+          echo "No tracked generated artifacts detected."

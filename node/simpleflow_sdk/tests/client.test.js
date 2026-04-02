@@ -3,6 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { SimpleFlowClient } = require("../index.js");
 
@@ -17,6 +19,11 @@ function startServer(handler) {
       });
     });
   });
+}
+
+function loadFixture(...parts) {
+  const fixturePath = path.resolve(__dirname, "../../..", ...parts);
+  return JSON.parse(fs.readFileSync(fixturePath, "utf-8"));
 }
 
 test("writeEventFromWorkflowResult emits telemetry-envelope.v1 payload", async () => {
@@ -191,5 +198,54 @@ test("listChatHistoryMessages uses expected query params", async () => {
     assert.match(capturedPath, /limit=10/);
   } finally {
     server.close();
+  }
+});
+
+test("contract fixture telemetry envelope workflow_basic", async () => {
+  const fixture = loadFixture("contracts", "telemetry-envelope-v1", "workflow_basic.json");
+
+  let captured = null;
+  const { server, baseUrl } = await startServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      captured = JSON.parse(body);
+      res.statusCode = 204;
+      res.end();
+    });
+  });
+
+  try {
+    const client = new SimpleFlowClient({ baseUrl });
+    await client.writeEventFromWorkflowResult({
+      agentId: fixture.agent_id,
+      workflowResult: fixture.workflow_result,
+    });
+
+    assert.equal(captured.event_type, fixture.expected_event.event_type);
+    assert.equal(captured.trace_id, fixture.expected_event.trace_id);
+    assert.equal(captured.conversation_id, fixture.expected_event.conversation_id);
+    assert.equal(captured.request_id, fixture.expected_event.request_id);
+    assert.equal(captured.user_id, fixture.expected_event.user_id);
+    assert.equal(captured.payload.schema_version, fixture.expected_payload.schema_version);
+    assert.equal(captured.payload.usage.total_tokens, fixture.expected_payload.usage.total_tokens);
+    assert.equal(captured.payload.usage.reasoning_tokens, fixture.expected_payload.usage.reasoning_tokens);
+    assert.equal(captured.payload.model_usage[0].model, fixture.expected_payload.model_usage_first.model);
+  } finally {
+    server.close();
+  }
+});
+
+test("contract fixture runtime registration action path cases", async () => {
+  const fixture = loadFixture("contracts", "runtime-registration", "action_path_cases.json");
+  const client = new SimpleFlowClient({ baseUrl: "https://api.example" });
+
+  for (const item of fixture.cases) {
+    assert.equal(
+      client._runtimeRegistrationActionPath(item.template, item.registration_id),
+      item.expected,
+    );
   }
 });

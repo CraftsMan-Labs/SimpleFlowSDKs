@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import fields, is_dataclass
 from hashlib import sha256
 from math import isfinite
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import httpx
+
+if TYPE_CHECKING:
+    from .response_models import ChatSession, InvokeResult, RuntimeActivationResult
 
 
 class SimpleFlowRequestError(RuntimeError):
@@ -32,11 +35,163 @@ class SimpleFlowLifecycleError(SimpleFlowRequestError):
     pass
 
 
+ALLOWED_EVENT_KEYS = frozenset(
+    {
+        "agent_id",
+        "organization_id",
+        "user_id",
+        "run_id",
+        "event_type",
+        "trace_id",
+        "conversation_id",
+        "request_id",
+        "sampled",
+        "payload",
+    }
+)
+
+ALLOWED_CHAT_MESSAGE_KEYS = frozenset(
+    {
+        "agent_id",
+        "organization_id",
+        "run_id",
+        "chat_id",
+        "message_id",
+        "role",
+        "direction",
+        "content",
+        "metadata",
+    }
+)
+
+
+def _dataclass_to_payload(payload: Any) -> dict[str, Any]:
+    if not is_dataclass(payload):
+        raise TypeError(
+            "simpleflow sdk payload error: payload must be a dataclass, dict, or None"
+        )
+    return {field.name: getattr(payload, field.name) for field in fields(payload)}
+
+
+def _registration_identifier(registration: dict[str, Any]) -> str:
+    return str(registration.get("id", registration.get("registration_id", ""))).strip()
+
+
+def _resolve_workflow_event_context(
+    normalized_result: dict[str, Any],
+    *,
+    organization_id: str,
+    user_id: str,
+) -> dict[str, Any]:
+    metadata = normalized_result.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    telemetry = metadata_dict.get("telemetry")
+    telemetry_dict = telemetry if isinstance(telemetry, dict) else {}
+    trace = metadata_dict.get("trace")
+    trace_dict = trace if isinstance(trace, dict) else {}
+    tenant = trace_dict.get("tenant")
+    tenant_dict = tenant if isinstance(tenant, dict) else {}
+
+    conversation_id = str(tenant_dict.get("conversation_id", "")).strip()
+    if conversation_id == "":
+        conversation_id = str(trace_dict.get("conversation_id", "")).strip()
+
+    request_id = str(tenant_dict.get("request_id", "")).strip()
+    if request_id == "":
+        request_id = str(trace_dict.get("request_id", "")).strip()
+
+    run_id = str(tenant_dict.get("run_id", "")).strip()
+    if run_id == "":
+        run_id = str(normalized_result.get("run_id", "")).strip()
+
+    resolved_organization_id = (
+        organization_id.strip()
+        or str(tenant_dict.get("organization_id", "")).strip()
+        or str(trace_dict.get("organization_id", "")).strip()
+        or str(normalized_result.get("organization_id", "")).strip()
+    )
+    resolved_user_id = (
+        user_id.strip()
+        or str(tenant_dict.get("user_id", "")).strip()
+        or str(trace_dict.get("user_id", "")).strip()
+        or str(normalized_result.get("user_id", "")).strip()
+    )
+    trace_id = str(telemetry_dict.get("trace_id", "")).strip()
+    sampled_value = telemetry_dict.get("sampled")
+    sampled = sampled_value if isinstance(sampled_value, bool) else None
+
+    return {
+        "conversation_id": conversation_id,
+        "request_id": request_id,
+        "run_id": run_id,
+        "organization_id": resolved_organization_id,
+        "user_id": resolved_user_id,
+        "trace_id": trace_id,
+        "sampled": sampled,
+    }
+
+
+def _normalize_runtime_activation_result(
+    value: dict[str, Any],
+) -> RuntimeActivationResult:
+    registration = value.get("registration")
+    normalized_registration: dict[str, Any]
+    if isinstance(registration, dict):
+        normalized_registration = registration
+    else:
+        normalized_registration = {}
+
+    result: RuntimeActivationResult = {
+        "status": "active",
+        "registration": normalized_registration,
+        "registration_id": str(value.get("registration_id", "")).strip(),
+        "created": bool(value.get("created", False)),
+        "validated": bool(value.get("validated", False)),
+        "activated": bool(value.get("activated", False)),
+    }
+    validation = value.get("validation")
+    if isinstance(validation, dict):
+        result["validation"] = validation
+    return result
+
+
+def _normalize_invoke_result(value: dict[str, Any]) -> InvokeResult:
+    result: InvokeResult = {}
+    if isinstance(value.get("schema_version"), str):
+        result["schema_version"] = str(value["schema_version"])
+    if isinstance(value.get("run_id"), str):
+        result["run_id"] = str(value["run_id"])
+    if isinstance(value.get("status"), str):
+        result["status"] = str(value["status"])
+    if isinstance(value.get("output"), dict):
+        result["output"] = value["output"]
+    if isinstance(value.get("error"), dict):
+        result["error"] = value["error"]
+    if isinstance(value.get("metrics"), dict):
+        result["metrics"] = value["metrics"]
+    return result
+
+
+def _normalize_chat_session(value: dict[str, Any]) -> ChatSession:
+    session: ChatSession = {}
+    if isinstance(value.get("chat_id"), str):
+        session["chat_id"] = str(value["chat_id"])
+    if isinstance(value.get("status"), str):
+        session["status"] = str(value["status"])
+    if isinstance(value.get("agent_id"), str):
+        session["agent_id"] = str(value["agent_id"])
+    if isinstance(value.get("user_id"), str):
+        session["user_id"] = str(value["user_id"])
+    if isinstance(value.get("metadata"), dict):
+        session["metadata"] = value["metadata"]
+    return session
+
+
 def _normalize_payload(payload: Any) -> dict[str, Any]:
     if payload is None:
         return {}
-    if hasattr(payload, "__dataclass_fields__"):
-        return asdict(payload)
+    if is_dataclass(payload):
+        return _dataclass_to_payload(payload)
     if isinstance(payload, dict):
         return payload
     raise TypeError(
@@ -485,6 +640,19 @@ class SimpleFlowClient:
         registration: Any,
         auth_token: str | None = None,
     ) -> dict[str, Any]:
+        return dict(
+            self.ensure_runtime_registration_active_typed(
+                registration=registration,
+                auth_token=auth_token,
+            )
+        )
+
+    def ensure_runtime_registration_active_typed(
+        self,
+        *,
+        registration: Any,
+        auth_token: str | None = None,
+    ) -> RuntimeActivationResult:
         payload = _normalize_payload(registration)
         requested_agent_id = str(payload.get("agent_id", "")).strip()
         requested_agent_version = str(payload.get("agent_version", "")).strip()
@@ -498,54 +666,76 @@ class SimpleFlowClient:
             agent_version=requested_agent_version,
             auth_token=auth_token,
         )
-        for item in existing:
-            status = str(item.get("status", "")).strip().lower()
-            if status == "active":
-                return {
-                    "status": "active",
-                    "registration": item,
-                    "registration_id": str(
-                        item.get("id", item.get("registration_id", ""))
-                    ).strip(),
-                    "created": False,
-                    "validated": False,
-                    "activated": False,
-                }
+        active = self._active_runtime_registration_result(existing)
+        if active is not None:
+            return _normalize_runtime_activation_result(active)
 
-        target = existing[0] if len(existing) > 0 else None
-        created = False
-        registration_id = ""
-        if target is None:
-            target = self.register_runtime(payload, auth_token=auth_token)
-            created = True
-
-        registration_id = str(
-            target.get("id", target.get("registration_id", ""))
-        ).strip()
-        if registration_id == "":
-            raise SimpleFlowLifecycleError(
-                status_code=502,
-                detail="registration response did not include registration id",
-                path=self._runtime_register_path,
-            )
+        target, created = self._resolve_registration_target(
+            existing=existing,
+            payload=payload,
+            auth_token=auth_token,
+        )
+        registration_id = self._registration_id_or_raise(target)
 
         validation = self.validate_runtime_registration(
             registration_id, auth_token=auth_token
         )
         self.activate_runtime_registration(registration_id, auth_token=auth_token)
-        return {
-            "status": "active",
-            "registration": target,
-            "registration_id": registration_id,
-            "validation": validation,
-            "created": created,
-            "validated": True,
-            "activated": True,
-        }
+        return _normalize_runtime_activation_result(
+            {
+                "status": "active",
+                "registration": target,
+                "registration_id": registration_id,
+                "validation": validation,
+                "created": created,
+                "validated": True,
+                "activated": True,
+            }
+        )
+
+    def _active_runtime_registration_result(
+        self, registrations: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        for item in registrations:
+            status = str(item.get("status", "")).strip().lower()
+            if status == "active":
+                return {
+                    "status": "active",
+                    "registration": item,
+                    "registration_id": _registration_identifier(item),
+                    "created": False,
+                    "validated": False,
+                    "activated": False,
+                }
+        return None
+
+    def _resolve_registration_target(
+        self,
+        *,
+        existing: list[dict[str, Any]],
+        payload: dict[str, Any],
+        auth_token: str | None,
+    ) -> tuple[dict[str, Any], bool]:
+        if len(existing) > 0:
+            return existing[0], False
+        return self.register_runtime(payload, auth_token=auth_token), True
+
+    def _registration_id_or_raise(self, registration: dict[str, Any]) -> str:
+        registration_id = _registration_identifier(registration)
+        if registration_id != "":
+            return registration_id
+        raise SimpleFlowLifecycleError(
+            status_code=502,
+            detail="registration response did not include registration id",
+            path=self._runtime_register_path,
+        )
 
     def invoke(self, request: Any, auth_token: str | None = None) -> dict[str, Any]:
+        return dict(self.invoke_typed(request, auth_token=auth_token))
+
+    def invoke_typed(self, request: Any, auth_token: str | None = None) -> InvokeResult:
         response = self._post(self._runtime_invoke_path, request, auth_token=auth_token)
-        return response
+        return _normalize_invoke_result(response)
 
     def write_event(self, event: Any) -> None:
         body = _normalize_payload(event)
@@ -555,19 +745,7 @@ class SimpleFlowClient:
         body["event_type"] = event_type
         body.pop("type", None)
         idempotency_key = str(body.pop("idempotency_key", "")).strip()
-        allowed_keys = {
-            "agent_id",
-            "organization_id",
-            "user_id",
-            "run_id",
-            "event_type",
-            "trace_id",
-            "conversation_id",
-            "request_id",
-            "sampled",
-            "payload",
-        }
-        body = {key: value for key, value in body.items() if key in allowed_keys}
+        body = {key: value for key, value in body.items() if key in ALLOWED_EVENT_KEYS}
         headers: dict[str, str] = {}
         if idempotency_key != "":
             headers["Idempotency-Key"] = idempotency_key
@@ -580,18 +758,11 @@ class SimpleFlowClient:
         body = _normalize_payload(message)
         idempotency_key = str(body.pop("idempotency_key", "")).strip()
         body.pop("created_at_ms", None)
-        allowed_keys = {
-            "agent_id",
-            "organization_id",
-            "run_id",
-            "chat_id",
-            "message_id",
-            "role",
-            "direction",
-            "content",
-            "metadata",
+        body = {
+            key: value
+            for key, value in body.items()
+            if key in ALLOWED_CHAT_MESSAGE_KEYS
         }
-        body = {key: value for key, value in body.items() if key in allowed_keys}
         direction = str(body.get("direction", "")).strip()
         if direction == "":
             body["direction"] = "outbound"
@@ -657,6 +828,26 @@ class SimpleFlowClient:
         limit: int = 50,
         auth_token: str | None = None,
     ) -> list[dict[str, Any]]:
+        return [
+            dict(session)
+            for session in self.list_chat_sessions_typed(
+                agent_id=agent_id,
+                user_id=user_id,
+                status=status,
+                limit=limit,
+                auth_token=auth_token,
+            )
+        ]
+
+    def list_chat_sessions_typed(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        status: str = "active",
+        limit: int = 50,
+        auth_token: str | None = None,
+    ) -> list[ChatSession]:
         path = self._path_with_query(
             self._chat_sessions_path,
             {
@@ -668,9 +859,11 @@ class SimpleFlowClient:
         )
         response = self._get(path, auth_token=auth_token)
         sessions = response.get("sessions")
-        if isinstance(sessions, list):
-            return [item for item in sessions if isinstance(item, dict)]
-        return []
+        if not isinstance(sessions, list):
+            return []
+        return [
+            _normalize_chat_session(item) for item in sessions if isinstance(item, dict)
+        ]
 
     def create_chat_history_message(
         self, message: Any, auth_token: str | None = None
@@ -712,49 +905,23 @@ class SimpleFlowClient:
         include_raw: bool = False,
     ) -> None:
         normalized_result = _normalize_payload(workflow_result)
-        metadata = normalized_result.get("metadata")
-        metadata_dict = metadata if isinstance(metadata, dict) else {}
-        telemetry = metadata_dict.get("telemetry")
-        telemetry_dict = telemetry if isinstance(telemetry, dict) else {}
-        trace = metadata_dict.get("trace")
-        trace_dict = trace if isinstance(trace, dict) else {}
-        tenant = trace_dict.get("tenant")
-        tenant_dict = tenant if isinstance(tenant, dict) else {}
-
-        conversation_id = str(tenant_dict.get("conversation_id", "")).strip()
-        if conversation_id == "":
-            conversation_id = str(trace_dict.get("conversation_id", "")).strip()
-        request_id = str(tenant_dict.get("request_id", "")).strip()
-        if request_id == "":
-            request_id = str(trace_dict.get("request_id", "")).strip()
-        run_id = str(tenant_dict.get("run_id", "")).strip()
-        if run_id == "":
-            run_id = str(normalized_result.get("run_id", "")).strip()
-        resolved_organization_id = (
-            organization_id.strip()
-            or str(tenant_dict.get("organization_id", "")).strip()
-            or str(trace_dict.get("organization_id", "")).strip()
-            or str(normalized_result.get("organization_id", "")).strip()
+        context = _resolve_workflow_event_context(
+            normalized_result,
+            organization_id=organization_id,
+            user_id=user_id,
         )
-        resolved_user_id = (
-            user_id.strip()
-            or str(tenant_dict.get("user_id", "")).strip()
-            or str(trace_dict.get("user_id", "")).strip()
-            or str(normalized_result.get("user_id", "")).strip()
-        )
-        trace_id = str(telemetry_dict.get("trace_id", "")).strip()
-        sampled_value = telemetry_dict.get("sampled")
-        sampled = sampled_value if isinstance(sampled_value, bool) else None
         canonical_payload = _build_canonical_telemetry_envelope(
             workflow_result=normalized_result,
             agent_id=agent_id,
-            organization_id=resolved_organization_id,
-            user_id=resolved_user_id,
-            run_id=run_id,
-            trace_id=trace_id,
-            conversation_id=conversation_id,
-            request_id=request_id,
-            sampled=sampled if isinstance(sampled, bool) else True,
+            organization_id=str(context["organization_id"]),
+            user_id=str(context["user_id"]),
+            run_id=str(context["run_id"]),
+            trace_id=str(context["trace_id"]),
+            conversation_id=str(context["conversation_id"]),
+            request_id=str(context["request_id"]),
+            sampled=(
+                context["sampled"] if isinstance(context["sampled"], bool) else True
+            ),
             include_raw=include_raw,
         )
 
@@ -762,13 +929,13 @@ class SimpleFlowClient:
             {
                 "event_type": event_type,
                 "agent_id": agent_id,
-                "organization_id": resolved_organization_id,
-                "user_id": resolved_user_id,
-                "run_id": run_id,
-                "conversation_id": conversation_id,
-                "request_id": request_id,
-                "trace_id": trace_id,
-                "sampled": sampled,
+                "organization_id": context["organization_id"],
+                "user_id": context["user_id"],
+                "run_id": context["run_id"],
+                "conversation_id": context["conversation_id"],
+                "request_id": context["request_id"],
+                "trace_id": context["trace_id"],
+                "sampled": context["sampled"],
                 "payload": canonical_payload,
             }
         )
@@ -867,16 +1034,64 @@ class SimpleFlowClient:
         extra_headers: dict[str, str] | None = None,
         auth_token: str | None = None,
     ) -> dict[str, Any]:
+        body = _normalize_payload(payload)
+        return self._request_json(
+            method="POST",
+            path=path,
+            payload=body,
+            extra_headers=extra_headers,
+            auth_token=auth_token,
+            include_json_content_type=True,
+            wrap_json_decode_error=True,
+        )
+
+    def _get(self, path: str, auth_token: str | None = None) -> dict[str, Any]:
+        return self._request_json(method="GET", path=path, auth_token=auth_token)
+
+    def _patch(
+        self, path: str, payload: Any, auth_token: str | None = None
+    ) -> dict[str, Any]:
+        body = _normalize_payload(payload)
+        return self._request_json(
+            method="PATCH",
+            path=path,
+            payload=body,
+            auth_token=auth_token,
+            include_json_content_type=True,
+        )
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: Any | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+        auth_token: str | None = None,
+        include_json_content_type: bool = False,
+        wrap_json_decode_error: bool = False,
+    ) -> dict[str, Any]:
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{self._base_url}{normalized_path}"
-        body = _normalize_payload(payload)
 
-        headers = {"Content-Type": "application/json"}
-        headers.update(self._authorization_headers(auth_token))
+        headers = self._authorization_headers(auth_token)
+        if include_json_content_type:
+            headers = {"Content-Type": "application/json", **headers}
         if extra_headers is not None:
             headers.update(extra_headers)
 
-        response = self._client.post(url, json=body, headers=headers)
+        upper_method = method.upper()
+        if upper_method == "GET":
+            response = self._client.get(url, headers=headers)
+        elif upper_method == "POST":
+            response = self._client.post(url, json=payload, headers=headers)
+        elif upper_method == "PATCH":
+            response = self._client.patch(url, json=payload, headers=headers)
+        else:
+            raise ValueError(
+                f"simpleflow sdk request error: unsupported method {method}"
+            )
+
         if response.status_code < 200 or response.status_code >= 300:
             self._raise_request_error(
                 path=normalized_path,
@@ -888,53 +1103,11 @@ class SimpleFlowClient:
         try:
             decoded = response.json()
         except ValueError as exc:
-            raise RuntimeError(
-                "simpleflow sdk request error: expected JSON response body"
-            ) from exc
-        if isinstance(decoded, dict):
-            return decoded
-        raise RuntimeError(
-            "simpleflow sdk request error: expected JSON object response body"
-        )
-
-    def _get(self, path: str, auth_token: str | None = None) -> dict[str, Any]:
-        normalized_path = path if path.startswith("/") else f"/{path}"
-        url = f"{self._base_url}{normalized_path}"
-        headers = self._authorization_headers(auth_token)
-        response = self._client.get(url, headers=headers)
-        if response.status_code < 200 or response.status_code >= 300:
-            self._raise_request_error(
-                path=normalized_path,
-                status_code=response.status_code,
-                body=response.text,
-            )
-        if response.text.strip() == "":
-            return {}
-        decoded = response.json()
-        if isinstance(decoded, dict):
-            return decoded
-        raise RuntimeError(
-            "simpleflow sdk request error: expected JSON object response body"
-        )
-
-    def _patch(
-        self, path: str, payload: Any, auth_token: str | None = None
-    ) -> dict[str, Any]:
-        normalized_path = path if path.startswith("/") else f"/{path}"
-        url = f"{self._base_url}{normalized_path}"
-        body = _normalize_payload(payload)
-        headers = {"Content-Type": "application/json"}
-        headers.update(self._authorization_headers(auth_token))
-        response = self._client.patch(url, json=body, headers=headers)
-        if response.status_code < 200 or response.status_code >= 300:
-            self._raise_request_error(
-                path=normalized_path,
-                status_code=response.status_code,
-                body=response.text,
-            )
-        if response.text.strip() == "":
-            return {}
-        decoded = response.json()
+            if wrap_json_decode_error:
+                raise RuntimeError(
+                    "simpleflow sdk request error: expected JSON response body"
+                ) from exc
+            raise
         if isinstance(decoded, dict):
             return decoded
         raise RuntimeError(

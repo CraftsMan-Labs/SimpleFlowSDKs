@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 from importlib.util import module_from_spec, spec_from_file_location
+import json
 from pathlib import Path
 from typing import Any
 import sys
@@ -126,10 +127,82 @@ class _FakeSpan:
 
 
 class SimpleFlowClientTests(unittest.TestCase):
-    def test_write_chat_message_strips_created_at_ms(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
+    def _new_client(
+        self,
+        *,
+        base_url: str = "https://api.example",
+        api_token: str | None = None,
+        empty_registrations: bool = False,
+    ) -> tuple[Any, _FakeHTTPClient]:
+        kwargs: dict[str, Any] = {"base_url": base_url}
+        if api_token is not None:
+            kwargs["api_token"] = api_token
+        client = SimpleFlowClient(**kwargs)
         fake_http = _FakeHTTPClient()
+        if empty_registrations:
+            fake_http.registrations_payload = []
         client._client = fake_http  # type: ignore[attr-defined]
+        return client, fake_http
+
+    def test_contract_fixture_telemetry_envelope_workflow_basic(self) -> None:
+        fixture_path = (
+            Path(__file__).resolve().parents[2]
+            / "contracts"
+            / "telemetry-envelope-v1"
+            / "workflow_basic.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        client, fake_http = self._new_client(empty_registrations=True)
+
+        client.write_event_from_workflow_result(
+            agent_id=fixture["agent_id"],
+            workflow_result=fixture["workflow_result"],
+        )
+
+        _, payload, _ = fake_http.calls[-1]
+        expected_event = fixture["expected_event"]
+        expected_payload = fixture["expected_payload"]
+        self.assertEqual(payload["event_type"], expected_event["event_type"])
+        self.assertEqual(payload["trace_id"], expected_event["trace_id"])
+        self.assertEqual(payload["conversation_id"], expected_event["conversation_id"])
+        self.assertEqual(payload["request_id"], expected_event["request_id"])
+        self.assertEqual(payload["user_id"], expected_event["user_id"])
+        self.assertEqual(
+            payload["payload"]["schema_version"],
+            expected_payload["schema_version"],
+        )
+        self.assertEqual(
+            payload["payload"]["usage"]["total_tokens"],
+            expected_payload["usage"]["total_tokens"],
+        )
+        self.assertEqual(
+            payload["payload"]["usage"]["reasoning_tokens"],
+            expected_payload["usage"]["reasoning_tokens"],
+        )
+        self.assertEqual(
+            payload["payload"]["model_usage"][0]["model"],
+            expected_payload["model_usage_first"]["model"],
+        )
+
+    def test_contract_fixture_runtime_registration_action_paths(self) -> None:
+        fixture_path = (
+            Path(__file__).resolve().parents[2]
+            / "contracts"
+            / "runtime-registration"
+            / "action_path_cases.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        client = SimpleFlowClient(base_url="https://api.example")
+        for case in fixture["cases"]:
+            actual = client._runtime_registration_action_path(
+                case["template"], case["registration_id"]
+            )
+            self.assertEqual(actual, case["expected"])
+
+    def test_write_chat_message_strips_created_at_ms(self) -> None:
+        client, fake_http = self._new_client()
 
         client.write_chat_message(
             {
@@ -151,9 +224,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(headers.get("Idempotency-Key"), "idem_1")
 
     def test_write_event_strips_unknown_runtime_fields(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client()
 
         client.write_event(
             {
@@ -180,10 +251,7 @@ class SimpleFlowClientTests(unittest.TestCase):
     def test_write_chat_message_from_workflow_result_persists_trace_metadata(
         self,
     ) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         client.write_chat_message_from_workflow_result(
             agent_id="agent_support_v1",
@@ -231,10 +299,7 @@ class SimpleFlowClientTests(unittest.TestCase):
     def test_write_chat_message_from_workflow_result_uses_custom_trace_base_url(
         self,
     ) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         client.write_chat_message_from_workflow_result(
             agent_id="agent_support_v1",
@@ -253,10 +318,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         )
 
     def test_write_event_from_workflow_result_extracts_trace_fields(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         client.write_event_from_workflow_result(
             agent_id="agent_support_v1",
@@ -311,10 +373,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(payload["payload"]["usage"]["reasoning_tokens"], 2)
 
     def test_write_event_from_workflow_result_prefers_top_level_nerdstats(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         client.write_event_from_workflow_result(
             agent_id="agent_support_v1",
@@ -352,10 +411,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(usage["llm_nodes_without_usage"], ["detect_scenario_context"])
 
     def test_write_event_from_workflow_result_reads_metadata_nerdstats(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         client.write_event_from_workflow_result(
             agent_id="agent_support_v1",
@@ -376,10 +432,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(payload["payload"]["usage"]["total_tokens"], 20)
 
     def test_with_telemetry_simpleflow_emits_runtime_event(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(empty_registrations=True)
 
         telemetry = client.with_telemetry(mode="simpleflow", sample_rate=1.0)
         telemetry.emit_span(
@@ -394,9 +447,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(payload["trace_id"], "trace_1")
 
     def test_chat_history_list_method(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client()
 
         messages = client.list_chat_history_messages(
             agent_id="agent_1", chat_id="chat_1", user_id="user_1", limit=10
@@ -404,11 +455,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(messages[0]["message_id"], "m1")
 
     def test_auth_and_control_plane_helpers(self) -> None:
-        client = SimpleFlowClient(
-            base_url="https://api.example", api_token="default_token"
-        )
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(api_token="default_token")
 
         session = client.create_session("user@example.com", "secret")
         me = client.get_me(auth_token="override_token")
@@ -439,11 +486,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         )
 
     def test_method_level_auth_override_for_runtime_and_chat_history(self) -> None:
-        client = SimpleFlowClient(
-            base_url="https://api.example", api_token="default_token"
-        )
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client(api_token="default_token")
 
         client.invoke({"agent_id": "agent_1"}, auth_token="override_token")
         client.list_chat_history_messages(
@@ -480,9 +523,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         )
 
     def test_runtime_registration_lifecycle_helpers(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client()
 
         client.activate_runtime_registration("reg_123")
         client.deactivate_runtime_registration("reg_123")
@@ -502,10 +543,7 @@ class SimpleFlowClientTests(unittest.TestCase):
     def test_ensure_runtime_registration_active_creates_validates_activates(
         self,
     ) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        fake_http.registrations_payload = []
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, _ = self._new_client(empty_registrations=True)
 
         result = client.ensure_runtime_registration_active(
             registration={"agent_id": "agent_1", "agent_version": "v1"}
@@ -516,9 +554,7 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertEqual(result["created"], True)
 
     def test_error_mapping_for_auth_scope_and_lifecycle(self) -> None:
-        client = SimpleFlowClient(base_url="https://api.example")
-        fake_http = _FakeHTTPClient()
-        client._client = fake_http  # type: ignore[attr-defined]
+        client, fake_http = self._new_client()
 
         fake_http.error_by_get_url["https://api.example/v1/me"] = 401
         with self.assertRaises(SimpleFlowAuthenticationError):
