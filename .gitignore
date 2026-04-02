@@ -6,9 +6,13 @@ __pycache__/
 build/
 dist/
 
+# Node artifacts
+node_modules/
+
 # Python tool caches
 .pytest_cache/
 
 # Docs artifacts
 docs/node_modules/
 docs/.vitepress/dist/
+docs/.vitepress/cache/

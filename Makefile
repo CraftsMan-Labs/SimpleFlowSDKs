@@ -1,4 +1,4 @@
-.PHONY: help test test-go test-python test-node lint-go fmt-go build-go build-python build-node docs-dev docs-build docs-preview check-publish check-publish-all publish-python-dry publish-python publish-node-dry publish-node publish-node-doppler npm-login publish-all publish-go-tag version-get version-sync version-next-patch version-next-minor version-next-major version-patch version-minor version-major version-set tag-release release-commit-tag-push release-patch release-minor release-major release-set
+.PHONY: help clean test test-go test-python test-node lint-go fmt-go build-go build-python build-node docs-dev docs-build docs-preview check-publish check-publish-all publish-python-dry publish-python publish-node-dry publish-node publish-node-doppler npm-login publish-all publish-go-tag version-get version-sync version-next-patch version-next-minor version-next-major version-patch version-minor version-major version-set tag-release release-commit-tag-push release-patch release-minor release-major release-set
 
 GO_SDK_DIR ?= go/simpleflow
 PYTHON_SDK_DIR ?= python
@@ -20,6 +20,7 @@ help:
 	@echo "SimpleFlowSDKs developer commands"
 	@echo ""
 	@echo "Testing:"
+	@echo "  make clean               - Remove generated build artifacts"
 	@echo "  make test                - Run Go, Python, and Node tests"
 	@echo "  make test-go             - Run Go SDK tests"
 	@echo "  make test-python         - Run Python SDK tests"
@@ -63,6 +64,12 @@ help:
 	@echo "  make publish-go-tag VERSION=vX.Y.Z - Tag and push for Go module release"
 
 test: test-go test-python test-node
+
+clean:
+	rm -rf "docs/node_modules" "docs/.vitepress/dist" "docs/.vitepress/cache"
+	rm -rf "examples/simpleflow-hr-agent/node_modules" ".opencode/node_modules"
+	rm -rf "python/dist" "python/build" "python"/*.egg-info
+	rm -rf "node/simpleflow_sdk/node_modules"
 
 test-go:
 	cd $(GO_SDK_DIR) && go test ./...
