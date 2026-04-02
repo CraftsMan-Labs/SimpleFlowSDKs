@@ -2,28 +2,7 @@
 
 This page shows the end-to-end integration flow for auth, telemetry, chat, and running workflows with SimpleAgents.
 
-## Auth overview
-
-- Machine auth (runtime connect + runtime writes): use either `SIMPLEFLOW_API_TOKEN` or set `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET` and let the SDK fetch OAuth token from `/v1/oauth/token`.
-- User auth (runtime invoke): user bearer token hits `/v1/runtime/invoke`; control plane forwards it to your runtime.
-- Chat entrypoint (`/api/v1/chat`): accepts **API key** (`agk_*`) or **user bearer**. `agent_id` is required in the body.
-
-## Auth env options
-
-Option A - static token:
-
-```bash
-export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export SIMPLEFLOW_API_TOKEN="<machine_runtime_token>"
-```
-
-Option B - client credentials:
-
-```bash
-export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export MACHINE_CLIENT_ID="<machine_client_id>"
-export MACHINE_CLIENT_SECRET="<machine_client_secret>"
-```
+Shared auth and env model: [SDK Integration Common Guide](/sdk-integration-common)
 
 ## Runtime connect
 
@@ -147,11 +126,8 @@ client.write_event_from_workflow_result(
 
 ## Minimal env
 
-- `SIMPLEFLOW_BASE_URL`
-- `SIMPLEFLOW_API_TOKEN` or (`MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`)
-- `SIMPLEFLOW_AGENT_ID`
-- `SIMPLEFLOW_AGENT_VERSION`
-- `SIMPLEFLOW_RUNTIME_ID`
-- `SIMPLEFLOW_ORGANIZATION_ID`
-- `RUNTIME_ENDPOINT_URL`
-- `WORKFLOW_PATH`
+Use the shared list in [SDK Integration Common Guide](/sdk-integration-common#shared-env-variables).
+
+Python-specific reminder:
+
+- `SIMPLEFLOW_API_KEY_OR_USER_TOKEN` for direct `/api/v1/chat` calls.

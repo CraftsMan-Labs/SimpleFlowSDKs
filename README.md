@@ -45,6 +45,7 @@ Typical runtime identity keys:
 ### 4) Copy/paste snippets by language
 
 - JS/TS/Python/Go quickstart snippets: `docs/quickstart.md`
+- Shared auth/env/flow model: `docs/sdk-integration-common.md`
 - Node integration (auth, telemetry, chat, workflow): `docs/sdk-node-integration.md`
 - Python integration (auth, telemetry, chat, workflow): `docs/sdk-python-integration.md`
 - Go integration (auth, telemetry, chat, workflow): `docs/sdk-go-integration.md`
@@ -97,6 +98,7 @@ await simpleflow.writeEventFromWorkflowResult({
 
 - Docs home: `https://docs.simpleflow-sdk.craftsmanlabs.net`
 - Quick start: `docs/quickstart.md`
+- Shared integration model: `docs/sdk-integration-common.md`
 - Agent integration: `docs/agent-integration.md`
 - Zero to control plane: `docs/agent-zero-to-control-plane.md`
 - Node/Python/Go integration pages: `docs/sdk-node-integration.md`, `docs/sdk-python-integration.md`, `docs/sdk-go-integration.md`
@@ -106,6 +108,7 @@ await simpleflow.writeEventFromWorkflowResult({
 Use the root `Makefile` for common workflows:
 
 - `make test` runs Go, Python, and Node tests.
+- `make clean` removes generated build artifacts and local dependency folders.
 - `make test-node` runs Node SDK tests.
 - `make lint-go` and `make fmt-go` run Go quality checks.
 - `make check-publish` runs release readiness checks.

@@ -2,33 +2,9 @@
 
 This page shows the end-to-end integration flow for auth, telemetry, chat, and running workflows with SimpleAgents.
 
-## Auth overview
+Shared auth and env model: [SDK Integration Common Guide](/sdk-integration-common)
 
-- Machine auth (runtime connect + runtime writes): use `SIMPLEFLOW_API_TOKEN`. If you start from `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`, exchange them at `/v1/oauth/token` first, then set `SIMPLEFLOW_API_TOKEN`.
-- User auth (runtime invoke): user bearer token hits `/v1/runtime/invoke`; control plane forwards it to your runtime.
-- Chat entrypoint (`/api/v1/chat`): accepts **API key** (`agk_*`) or **user bearer**. `agent_id` is required in the body.
-
-## Auth env options
-
-Option A - static token:
-
-```bash
-export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export SIMPLEFLOW_API_TOKEN="<machine_runtime_token>"
-```
-
-Option B - client credentials (exchange -> token):
-
-```bash
-export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export MACHINE_CLIENT_ID="<machine_client_id>"
-export MACHINE_CLIENT_SECRET="<machine_client_secret>"
-
-export SIMPLEFLOW_API_TOKEN="$(curl -sS -X POST "$SIMPLEFLOW_BASE_URL/v1/oauth/token" \
-  -H "Content-Type: application/json" \
-  -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"$MACHINE_CLIENT_ID\",\"client_secret\":\"$MACHINE_CLIENT_SECRET\"}" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
-```
+Go-specific note: if you start from `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET`, exchange at `/v1/oauth/token` and set `SIMPLEFLOW_API_TOKEN` before building the Go client.
 
 ## Runtime connect
 
@@ -159,11 +135,8 @@ err = client.WriteEventFromWorkflowResult(ctx, simpleflow.WriteEventFromWorkflow
 
 ## Minimal env
 
-- `SIMPLEFLOW_BASE_URL`
-- `SIMPLEFLOW_API_TOKEN` (or mint it from `MACHINE_CLIENT_ID` + `MACHINE_CLIENT_SECRET` first)
-- `SIMPLEFLOW_AGENT_ID`
-- `SIMPLEFLOW_AGENT_VERSION`
-- `SIMPLEFLOW_RUNTIME_ID`
-- `SIMPLEFLOW_ORGANIZATION_ID`
-- `RUNTIME_ENDPOINT_URL`
-- `WORKFLOW_PATH`
+Use the shared list in [SDK Integration Common Guide](/sdk-integration-common#shared-env-variables).
+
+Go-specific reminder:
+
+- Set `SIMPLEFLOW_API_TOKEN` for the SDK client (user-scoped chat history can use a separate client/token).
