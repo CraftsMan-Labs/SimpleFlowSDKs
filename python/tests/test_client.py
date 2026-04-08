@@ -20,18 +20,12 @@ class _NoopHTTPXClient:
     def get(self, url: str, headers: dict) -> object:
         raise RuntimeError("httpx stub client should be replaced in tests")
 
-    def patch(self, url: str, json: dict, headers: dict) -> object:
-        raise RuntimeError("httpx stub client should be replaced in tests")
-
-    def delete(self, url: str, headers: dict) -> object:
-        raise RuntimeError("httpx stub client should be replaced in tests")
-
     def close(self) -> None:
         return None
 
 
 httpx_stub = types.ModuleType("httpx")
-setattr(httpx_stub, "Client", _NoopHTTPXClient)
+setattr(httpx_stub, "AsyncClient", _NoopHTTPXClient)
 sys.modules.setdefault("httpx", httpx_stub)
 
 CLIENT_MODULE_PATH = (
@@ -43,10 +37,8 @@ if CLIENT_SPEC is None or CLIENT_SPEC.loader is None:
 CLIENT_MODULE = module_from_spec(CLIENT_SPEC)
 CLIENT_SPEC.loader.exec_module(CLIENT_MODULE)
 SimpleFlowClient = CLIENT_MODULE.SimpleFlowClient
-_should_sample = CLIENT_MODULE._should_sample
 SimpleFlowAuthenticationError = CLIENT_MODULE.SimpleFlowAuthenticationError
 SimpleFlowAuthorizationError = CLIENT_MODULE.SimpleFlowAuthorizationError
-SimpleFlowLifecycleError = CLIENT_MODULE.SimpleFlowLifecycleError
 
 
 class _FakeResponse:
@@ -73,57 +65,46 @@ class _FakeHTTPClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict, dict]] = []
         self.calls_get: list[tuple[str, dict]] = []
-        self.calls_patch: list[tuple[str, dict, dict]] = []
-        self.calls_delete: list[tuple[str, dict]] = []
         self.error_by_post_url: dict[str, int] = {}
         self.error_by_get_url: dict[str, int] = {}
-        self.registrations_payload: list[dict[str, Any]] = [{"id": "reg_1"}]
 
-    def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
+    async def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
         self.calls.append((url, json, headers))
         status_code = self.error_by_post_url.get(url)
         if status_code is not None:
             return _FakeResponse(status_code=status_code, text="denied")
-        if url.endswith("/v1/runtime/registrations/reg_123/validate"):
-            return _FakeResponse(
-                payload={"validation_ok": True, "registration": {"id": "reg_123"}}
-            )
-        if url.endswith("/v1/runtime/registrations"):
-            return _FakeResponse(payload={"id": "reg_created"})
-        if url.endswith("/v1/auth/sessions"):
-            return _FakeResponse(payload={"session": {"id": "sess_1"}})
         return _FakeResponse()
 
-    def get(self, url: str, headers: dict) -> _FakeResponse:
+    async def get(self, url: str, headers: dict) -> _FakeResponse:
         self.calls_get.append((url, headers))
         status_code = self.error_by_get_url.get(url)
         if status_code is not None:
             return _FakeResponse(status_code=status_code, text="not allowed")
-        if url.endswith("/v1/me"):
-            return _FakeResponse(payload={"user_id": "user_1"})
-        if "/v1/runtime/registrations?" in url:
-            return _FakeResponse(payload={"registrations": self.registrations_payload})
-        if "/v1/chat/history/sessions?" in url:
-            return _FakeResponse(payload={"sessions": [{"chat_id": "chat_1"}]})
-        return _FakeResponse(payload={"messages": [{"message_id": "m1"}]})
-
-    def patch(self, url: str, json: dict, headers: dict) -> _FakeResponse:
-        self.calls_patch.append((url, json, headers))
-        return _FakeResponse(payload={"message_id": "m1"})
-
-    def delete(self, url: str, headers: dict) -> _FakeResponse:
-        self.calls_delete.append((url, headers))
+        if "/v1/runtime/chat/sessions" in url:
+            return _FakeResponse(
+                payload={
+                    "sessions": [
+                        {
+                            "chat_id": "chat_1",
+                            "status": "active",
+                            "agent_id": "agent_1",
+                            "user_id": "user_1",
+                        }
+                    ]
+                }
+            )
+        if "/v1/runtime/chat/messages/list" in url:
+            return _FakeResponse(
+                payload={
+                    "messages": [
+                        {"message_id": "m1", "chat_id": "chat_1", "role": "user"}
+                    ]
+                }
+            )
         return _FakeResponse()
 
-    def close(self) -> None:
+    async def aclose(self) -> None:
         return None
-
-
-@dataclass(slots=True)
-class _FakeSpan:
-    name: str
-    start_time_ms: int
-    end_time_ms: int
 
 
 class SimpleFlowClientTests(unittest.TestCase):
@@ -132,452 +113,235 @@ class SimpleFlowClientTests(unittest.TestCase):
         *,
         base_url: str = "https://api.example",
         api_token: str | None = None,
-        empty_registrations: bool = False,
     ) -> tuple[Any, _FakeHTTPClient]:
         kwargs: dict[str, Any] = {"base_url": base_url}
         if api_token is not None:
             kwargs["api_token"] = api_token
         client = SimpleFlowClient(**kwargs)
         fake_http = _FakeHTTPClient()
-        if empty_registrations:
-            fake_http.registrations_payload = []
         client._client = fake_http  # type: ignore[attr-defined]
         return client, fake_http
 
-    def test_contract_fixture_telemetry_envelope_workflow_basic(self) -> None:
-        fixture_path = (
-            Path(__file__).resolve().parents[2]
-            / "contracts"
-            / "telemetry-envelope-v1"
-            / "workflow_basic.json"
-        )
-        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    def test_write_event_emits_event_to_runtime_endpoint(self) -> None:
+        import asyncio
 
-        client, fake_http = self._new_client(empty_registrations=True)
+        client, fake_http = self._new_client()
 
-        client.write_event_from_workflow_result(
-            agent_id=fixture["agent_id"],
-            workflow_result=fixture["workflow_result"],
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        expected_event = fixture["expected_event"]
-        expected_payload = fixture["expected_payload"]
-        self.assertEqual(payload["event_type"], expected_event["event_type"])
-        self.assertEqual(payload["trace_id"], expected_event["trace_id"])
-        self.assertEqual(payload["conversation_id"], expected_event["conversation_id"])
-        self.assertEqual(payload["request_id"], expected_event["request_id"])
-        self.assertEqual(payload["user_id"], expected_event["user_id"])
-        self.assertEqual(
-            payload["payload"]["schema_version"],
-            expected_payload["schema_version"],
-        )
-        self.assertEqual(
-            payload["payload"]["usage"]["total_tokens"],
-            expected_payload["usage"]["total_tokens"],
-        )
-        self.assertEqual(
-            payload["payload"]["usage"]["reasoning_tokens"],
-            expected_payload["usage"]["reasoning_tokens"],
-        )
-        self.assertEqual(
-            payload["payload"]["model_usage"][0]["model"],
-            expected_payload["model_usage_first"]["model"],
-        )
-
-    def test_contract_fixture_runtime_registration_action_paths(self) -> None:
-        fixture_path = (
-            Path(__file__).resolve().parents[2]
-            / "contracts"
-            / "runtime-registration"
-            / "action_path_cases.json"
-        )
-        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-
-        client = SimpleFlowClient(base_url="https://api.example")
-        for case in fixture["cases"]:
-            actual = client._runtime_registration_action_path(
-                case["template"], case["registration_id"]
+        asyncio.run(
+            client.write_event(
+                {
+                    "event_type": "chat.message.telemetry",
+                    "agent_id": "agent_1",
+                    "conversation_id": "session_123",
+                    "user_id": "user_123",
+                    "payload": {
+                        "total_tokens": 150,
+                        "ttfs": 250,
+                    },
+                }
             )
-            self.assertEqual(actual, case["expected"])
+        )
 
-    def test_write_chat_message_strips_created_at_ms(self) -> None:
+        url, payload, _ = fake_http.calls[-1]
+        self.assertEqual(url, "https://api.example/v1/runtime/events")
+        self.assertEqual(payload["event_type"], "chat.message.telemetry")
+        self.assertEqual(payload["agent_id"], "agent_1")
+        self.assertEqual(payload["conversation_id"], "session_123")
+        self.assertEqual(payload["payload"]["total_tokens"], 150)
+        self.assertEqual(payload["payload"]["ttfs"], 250)
+
+    def test_write_event_accepts_auth_token_for_user_authentication(self) -> None:
+        import asyncio
+
         client, fake_http = self._new_client()
 
-        client.write_chat_message(
-            {
-                "agent_id": "agent_1",
-                "organization_id": "org_1",
-                "run_id": "run_1",
-                "chat_id": "chat_1",
-                "message_id": "msg_1",
-                "role": "assistant",
-                "content": {"reply": "ok"},
-                "metadata": {},
-                "created_at_ms": 123,
-                "idempotency_key": "idem_1",
-            }
+        asyncio.run(
+            client.write_event(
+                {
+                    "event_type": "test.event",
+                    "agent_id": "agent_1",
+                },
+                auth_token="user_jwt_token_123",
+            )
         )
 
-        _, payload, headers = fake_http.calls[-1]
-        self.assertNotIn("created_at_ms", payload)
-        self.assertEqual(headers.get("Idempotency-Key"), "idem_1")
+        _, _, headers = fake_http.calls[-1]
+        self.assertEqual(headers.get("Authorization"), "Bearer user_jwt_token_123")
 
-    def test_write_event_strips_unknown_runtime_fields(self) -> None:
+    def test_write_chat_message_emits_message_to_chat_endpoint(self) -> None:
+        import asyncio
+
         client, fake_http = self._new_client()
 
-        client.write_event(
-            {
-                "agent_id": "agent_1",
-                "organization_id": "org_1",
-                "run_id": "run_1",
-                "type": "runtime.invoke.completed",
-                "trace_id": "trace_1",
-                "conversation_id": "chat_1",
-                "request_id": "req_1",
-                "payload": {"status": "ok"},
-                "agent_version": "v1",
-                "timestamp_ms": 123,
-                "idempotency_key": "evt_1",
-            }
+        asyncio.run(
+            client.write_chat_message(
+                {
+                    "agent_id": "agent_1",
+                    "organization_id": "org_123",
+                    "user_id": "user_123",
+                    "chat_id": "session_123",
+                    "role": "user",
+                    "content": {"text": "Hello!"},
+                    "metadata": {"source": "chat.app"},
+                }
+            )
         )
 
-        _, payload, headers = fake_http.calls[-1]
-        self.assertEqual(payload.get("event_type"), "runtime.invoke.completed")
-        self.assertNotIn("agent_version", payload)
-        self.assertNotIn("timestamp_ms", payload)
-        self.assertEqual(headers.get("Idempotency-Key"), "evt_1")
+        url, payload, _ = fake_http.calls[-1]
+        self.assertEqual(url, "https://api.example/v1/runtime/chat/messages")
+        self.assertEqual(payload["agent_id"], "agent_1")
+        self.assertEqual(payload["chat_id"], "session_123")
+        self.assertEqual(payload["role"], "user")
+        self.assertEqual(payload["direction"], "outbound")
+        self.assertEqual(payload["content"], {"text": "Hello!"})
 
-    def test_write_chat_message_from_workflow_result_persists_trace_metadata(
-        self,
-    ) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
+    def test_write_chat_message_uses_idempotency_key_when_provided(self) -> None:
+        import asyncio
 
-        client.write_chat_message_from_workflow_result(
-            agent_id="agent_support_v1",
-            organization_id="org_1",
-            run_id="run_1",
-            role="assistant",
-            trace_id="92f4be5ae517295005df76967d32984b",
-            span_id="span_1",
-            tenant_id="tenant_1",
-            workflow_result={
-                "workflow_id": "email-chat-draft-or-clarify",
-                "terminal_node": "generate_email_draft",
-                "terminal_output": {"subject": "S", "body": "B"},
-                "trace": ["detect_scenario_context", "generate_email_draft"],
-                "step_timings": [],
-                "llm_node_metrics": {},
-                "total_elapsed_ms": 123,
-                "events": [
-                    {"event_type": "workflow_started", "metadata": {}},
-                    {
-                        "event_type": "workflow_completed",
-                        "metadata": {
-                            "nerdstats": {
-                                "total_elapsed_ms": 123,
-                                "total_tokens": 456,
-                            }
-                        },
-                    },
-                ],
-            },
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        self.assertEqual(payload["role"], "assistant")
-        self.assertEqual(
-            payload["content"]["workflow"]["workflow_id"], "email-chat-draft-or-clarify"
-        )
-        self.assertEqual(
-            payload["metadata"]["trace_context"]["trace_url"],
-            "http://localhost:16686/trace/92f4be5ae517295005df76967d32984b",
-        )
-        self.assertEqual(payload["metadata"]["event_counts"]["workflow_completed"], 1)
-        self.assertEqual(payload["metadata"]["nerdstats"]["total_tokens"], 456)
-
-    def test_write_chat_message_from_workflow_result_uses_custom_trace_base_url(
-        self,
-    ) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
-
-        client.write_chat_message_from_workflow_result(
-            agent_id="agent_support_v1",
-            organization_id="org_1",
-            run_id="run_1",
-            role="assistant",
-            trace_id="trace_abc",
-            trace_ui_base_url="https://jaeger.example",
-            workflow_result={"workflow_id": "wf", "terminal_node": "done"},
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        self.assertEqual(
-            payload["metadata"]["trace_context"]["trace_url"],
-            "https://jaeger.example/trace/trace_abc",
-        )
-
-    def test_write_event_from_workflow_result_extracts_trace_fields(self) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
-
-        client.write_event_from_workflow_result(
-            agent_id="agent_support_v1",
-            workflow_result={
-                "workflow_id": "email-chat-draft-or-clarify",
-                "terminal_node": "ask_for_scenario",
-                "run_id": "run_123",
-                "metadata": {
-                    "telemetry": {"trace_id": "trace_123", "sampled": True},
-                    "trace": {
-                        "tenant": {
-                            "conversation_id": "chat_123",
-                            "request_id": "req_123",
-                            "user_id": "user_123",
-                        }
-                    },
-                },
-                "events": [
-                    {"event_type": "workflow_started"},
-                    {
-                        "event_type": "workflow_completed",
-                        "metadata": {
-                            "nerdstats": {
-                                "total_input_tokens": 10,
-                                "total_output_tokens": 5,
-                                "total_tokens": 15,
-                                "total_reasoning_tokens": 2,
-                                "step_details": [
-                                    {
-                                        "model_name": "gpt-5-mini",
-                                        "prompt_tokens": 10,
-                                        "completion_tokens": 5,
-                                        "total_tokens": 15,
-                                    }
-                                ],
-                            }
-                        },
-                    },
-                ],
-            },
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        self.assertEqual(payload["event_type"], "runtime.workflow.completed")
-        self.assertEqual(payload["trace_id"], "trace_123")
-        self.assertEqual(payload["conversation_id"], "chat_123")
-        self.assertEqual(payload["request_id"], "req_123")
-        self.assertEqual(payload["sampled"], True)
-        self.assertEqual(payload["user_id"], "user_123")
-        self.assertEqual(payload["payload"]["schema_version"], "telemetry-envelope.v1")
-        self.assertEqual(payload["payload"]["usage"]["total_tokens"], 15)
-        self.assertEqual(payload["payload"]["usage"]["reasoning_tokens"], 2)
-
-    def test_write_event_from_workflow_result_prefers_top_level_nerdstats(self) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
-
-        client.write_event_from_workflow_result(
-            agent_id="agent_support_v1",
-            workflow_result={
-                "workflow_id": "email-chat-draft-or-clarify",
-                "terminal_node": "ask_for_scenario",
-                "nerdstats": {
-                    "total_input_tokens": 999,
-                    "total_tokens": 777,
-                    "token_metrics_available": False,
-                    "token_metrics_source": "provider_stream_usage_unavailable",
-                    "llm_nodes_without_usage": ["detect_scenario_context"],
-                    "total_elapsed_ms": 321,
-                },
-                "events": [
-                    {
-                        "event_type": "workflow_completed",
-                        "metadata": {"nerdstats": {"total_tokens": 15}},
-                    }
-                ],
-            },
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        usage = payload["payload"]["usage"]
-        self.assertIsNone(usage["prompt_tokens"])
-        self.assertIsNone(usage["completion_tokens"])
-        self.assertIsNone(usage["total_tokens"])
-        self.assertIsNone(usage["reasoning_tokens"])
-        self.assertEqual(usage["total_elapsed_ms"], 321)
-        self.assertEqual(usage["token_metrics_available"], False)
-        self.assertEqual(
-            usage["token_metrics_source"], "provider_stream_usage_unavailable"
-        )
-        self.assertEqual(usage["llm_nodes_without_usage"], ["detect_scenario_context"])
-
-    def test_write_event_from_workflow_result_reads_metadata_nerdstats(self) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
-
-        client.write_event_from_workflow_result(
-            agent_id="agent_support_v1",
-            workflow_result={
-                "workflow_id": "email-chat-draft-or-clarify",
-                "terminal_node": "ask_for_scenario",
-                "metadata": {
-                    "nerdstats": {
-                        "total_input_tokens": 12,
-                        "total_output_tokens": 8,
-                        "total_tokens": 20,
-                    }
-                },
-            },
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        self.assertEqual(payload["payload"]["usage"]["total_tokens"], 20)
-
-    def test_with_telemetry_simpleflow_emits_runtime_event(self) -> None:
-        client, fake_http = self._new_client(empty_registrations=True)
-
-        telemetry = client.with_telemetry(mode="simpleflow", sample_rate=1.0)
-        telemetry.emit_span(
-            span=_FakeSpan(name="llm.call", start_time_ms=10, end_time_ms=15),
-            agent_id="agent_1",
-            run_id="run_1",
-            trace_id="trace_1",
-        )
-
-        _, payload, _ = fake_http.calls[-1]
-        self.assertEqual(payload["event_type"], "runtime.telemetry.span")
-        self.assertEqual(payload["trace_id"], "trace_1")
-
-    def test_chat_history_list_method(self) -> None:
         client, fake_http = self._new_client()
 
-        messages = client.list_chat_history_messages(
-            agent_id="agent_1", chat_id="chat_1", user_id="user_1", limit=10
+        asyncio.run(
+            client.write_chat_message(
+                {
+                    "agent_id": "agent_1",
+                    "organization_id": "org_123",
+                    "user_id": "user_123",
+                    "chat_id": "session_123",
+                    "role": "user",
+                    "content": {"text": "Hello!"},
+                    "idempotency_key": "unique-key-123",
+                }
+            )
         )
+
+        _, _, headers = fake_http.calls[-1]
+        self.assertEqual(headers.get("Idempotency-Key"), "unique-key-123")
+
+    def test_list_chat_sessions_fetches_sessions_with_correct_params(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+
+        sessions = asyncio.run(
+            client.list_chat_sessions(
+                agent_id="agent_1",
+                user_id="user_123",
+                status="active",
+                limit=10,
+                auth_token="user_token",
+            )
+        )
+
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["chat_id"], "chat_1")
+        self.assertEqual(sessions[0]["status"], "active")
+
+        url, headers = fake_http.calls_get[-1]
+        self.assertIn("/v1/runtime/chat/sessions", url)
+        self.assertIn("agent_id=agent_1", url)
+        self.assertIn("user_id=user_123", url)
+        self.assertIn("status=active", url)
+        self.assertIn("limit=10", url)
+        self.assertEqual(headers.get("Authorization"), "Bearer user_token")
+
+    def test_list_chat_messages_fetches_messages_with_correct_params(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+
+        messages = asyncio.run(
+            client.list_chat_messages(
+                agent_id="agent_1",
+                chat_id="session_123",
+                user_id="user_123",
+                limit=20,
+                auth_token="user_token",
+            )
+        )
+
+        self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0]["message_id"], "m1")
 
-    def test_auth_and_control_plane_helpers(self) -> None:
-        client, fake_http = self._new_client(api_token="default_token")
+        url, headers = fake_http.calls_get[-1]
+        self.assertIn("/v1/runtime/chat/messages/list", url)
+        self.assertIn("agent_id=agent_1", url)
+        self.assertIn("chat_id=session_123", url)
+        self.assertIn("user_id=user_123", url)
+        self.assertIn("limit=20", url)
+        self.assertEqual(headers.get("Authorization"), "Bearer user_token")
 
-        session = client.create_session("user@example.com", "secret")
-        me = client.get_me(auth_token="override_token")
-        registrations = client.list_runtime_registrations(
-            agent_id="agent_1",
-            agent_version="v1",
-            auth_token="override_token",
-        )
-        sessions = client.list_chat_sessions(
-            agent_id="agent_1",
-            user_id="user_1",
-            auth_token="override_token",
-        )
-        client.delete_current_session(auth_token="override_token")
+    def test_write_message_telemetry_writes_telemetry_for_chat_message(self) -> None:
+        import asyncio
 
-        self.assertEqual(session["session"]["id"], "sess_1")
-        self.assertEqual(me["user_id"], "user_1")
-        self.assertEqual(registrations[0]["id"], "reg_1")
-        self.assertEqual(sessions[0]["chat_id"], "chat_1")
-
-        post_headers = fake_http.calls[0][2]
-        self.assertNotIn("Authorization", post_headers)
-        self.assertEqual(
-            fake_http.calls_get[0][1]["Authorization"], "Bearer override_token"
-        )
-        self.assertEqual(
-            fake_http.calls_delete[0][1]["Authorization"], "Bearer override_token"
-        )
-
-    def test_method_level_auth_override_for_runtime_and_chat_history(self) -> None:
-        client, fake_http = self._new_client(api_token="default_token")
-
-        client.invoke({"agent_id": "agent_1"}, auth_token="override_token")
-        client.list_chat_history_messages(
-            agent_id="agent_1",
-            chat_id="chat_1",
-            user_id="user_1",
-            auth_token="override_token",
-        )
-        client.create_chat_history_message(
-            {"agent_id": "agent_1", "chat_id": "chat_1", "user_id": "user_1"},
-            auth_token="override_token",
-        )
-        client.update_chat_history_message(
-            message_id="m1",
-            agent_id="agent_1",
-            chat_id="chat_1",
-            user_id="user_1",
-            content={},
-            metadata={},
-            auth_token="override_token",
-        )
-
-        self.assertEqual(
-            fake_http.calls[0][2]["Authorization"], "Bearer override_token"
-        )
-        self.assertEqual(
-            fake_http.calls_get[0][1]["Authorization"], "Bearer override_token"
-        )
-        self.assertEqual(
-            fake_http.calls[1][2]["Authorization"], "Bearer override_token"
-        )
-        self.assertEqual(
-            fake_http.calls_patch[0][2]["Authorization"], "Bearer override_token"
-        )
-
-    def test_runtime_registration_lifecycle_helpers(self) -> None:
         client, fake_http = self._new_client()
 
-        client.activate_runtime_registration("reg_123")
-        client.deactivate_runtime_registration("reg_123")
-        validation = client.validate_runtime_registration("reg_123")
-
-        called_urls = [url for (url, _, _) in fake_http.calls]
-        self.assertEqual(
-            called_urls,
-            [
-                "https://api.example/v1/runtime/registrations/reg_123/activate",
-                "https://api.example/v1/runtime/registrations/reg_123/deactivate",
-                "https://api.example/v1/runtime/registrations/reg_123/validate",
-            ],
-        )
-        self.assertEqual(validation["validation_ok"], True)
-
-    def test_ensure_runtime_registration_active_creates_validates_activates(
-        self,
-    ) -> None:
-        client, _ = self._new_client(empty_registrations=True)
-
-        result = client.ensure_runtime_registration_active(
-            registration={"agent_id": "agent_1", "agent_version": "v1"}
+        asyncio.run(
+            client.write_message_telemetry(
+                agent_id="agent_1",
+                session_id="session_123",
+                metrics={
+                    "total_tokens": 150,
+                    "ttfs": 250,
+                    "prompt_tokens": 50,
+                    "completion_tokens": 100,
+                    "user_id": "user_123",
+                    "run_id": "run_456",
+                },
+                auth_token="user_jwt_token",
+            )
         )
 
-        self.assertEqual(result["status"], "active")
-        self.assertEqual(result["registration_id"], "reg_created")
-        self.assertEqual(result["created"], True)
+        _, payload, headers = fake_http.calls[-1]
+        self.assertEqual(payload["event_type"], "chat.message.telemetry")
+        self.assertEqual(payload["agent_id"], "agent_1")
+        self.assertEqual(payload["conversation_id"], "session_123")
+        self.assertEqual(payload["user_id"], "user_123")
+        self.assertEqual(payload["run_id"], "run_456")
+        self.assertEqual(payload["payload"]["total_tokens"], 150)
+        self.assertEqual(payload["payload"]["ttfs"], 250)
+        self.assertEqual(payload["payload"]["prompt_tokens"], 50)
+        self.assertEqual(payload["payload"]["completion_tokens"], 100)
+        self.assertIsInstance(payload["payload"]["timestamp_ms"], int)
+        self.assertEqual(headers.get("Authorization"), "Bearer user_jwt_token")
 
-    def test_error_mapping_for_auth_scope_and_lifecycle(self) -> None:
+    def test_authentication_error_raises_simple_flow_authentication_error(self) -> None:
+        import asyncio
+
         client, fake_http = self._new_client()
-
-        fake_http.error_by_get_url["https://api.example/v1/me"] = 401
-        with self.assertRaises(SimpleFlowAuthenticationError):
-            client.get_me(auth_token="bad")
-
         fake_http.error_by_get_url[
-            "https://api.example/v1/runtime/registrations?agent_id=agent_1&agent_version=v1"
+            "https://api.example/v1/runtime/chat/sessions?agent_id=agent_1&user_id=user_1&status=active&limit=50"
+        ] = 401
+
+        with self.assertRaises(SimpleFlowAuthenticationError):
+            asyncio.run(client.list_chat_sessions(agent_id="agent_1", user_id="user_1"))
+
+    def test_authorization_error_raises_simple_flow_authorization_error(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        fake_http.error_by_get_url[
+            "https://api.example/v1/runtime/chat/sessions?agent_id=agent_1&user_id=user_1&status=active&limit=50"
         ] = 403
+
         with self.assertRaises(SimpleFlowAuthorizationError):
-            client.list_runtime_registrations(agent_id="agent_1", agent_version="v1")
+            asyncio.run(client.list_chat_sessions(agent_id="agent_1", user_id="user_1"))
 
-        fake_http.error_by_post_url[
-            "https://api.example/v1/runtime/registrations/reg_123/activate"
-        ] = 409
-        with self.assertRaises(SimpleFlowLifecycleError):
-            client.activate_runtime_registration("reg_123")
+    def test_api_token_used_when_no_auth_token_provided(self) -> None:
+        import asyncio
 
+        client, fake_http = self._new_client(api_token="default_machine_token")
 
-class SamplingTests(unittest.TestCase):
-    def test_should_sample_is_deterministic(self) -> None:
-        first = _should_sample("trace_abc", 0.2)
-        second = _should_sample("trace_abc", 0.2)
-        self.assertEqual(first, second)
+        asyncio.run(
+            client.write_event(
+                {
+                    "event_type": "test.event",
+                    "agent_id": "agent_1",
+                }
+            )
+        )
+
+        _, _, headers = fake_http.calls[-1]
+        self.assertEqual(headers.get("Authorization"), "Bearer default_machine_token")
 
 
 if __name__ == "__main__":
