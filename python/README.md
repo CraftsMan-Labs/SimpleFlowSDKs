@@ -48,3 +48,4 @@ await client.write_chat_message(
 
 - `write_chat_message` requires: `agent_id`, `user_id`, `chat_id`, `message_id`, `role`.
 - `list_chat_messages` uses `GET /v1/chat/sessions` with `chat_id` query filtering.
+- `user_id` is optional for `list_chat_sessions` and `list_chat_messages` when caller is `admin`/`super_admin`.

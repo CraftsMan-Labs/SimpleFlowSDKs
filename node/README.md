@@ -32,4 +32,11 @@ await client.writeChatMessage({
   content: { text: "Hello" },
   telemetry_data: { source: "web" },
 })
+
+// For admin/super_admin callers, userId can be omitted when listing sessions/messages.
+const page = await client.listChatSessionsPage({
+  agentId: "agent_1",
+  page: 1,
+  limit: 20,
+})
 ```
