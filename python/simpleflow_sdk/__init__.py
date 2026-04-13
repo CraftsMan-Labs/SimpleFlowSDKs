@@ -4,22 +4,32 @@ from .client import (
     SimpleFlowAuthorizationError,
     SimpleFlowClient,
     SimpleFlowRequestError,
+    can_read_chat_user_scope,
+    roles_include_any,
 )
 from .contracts import (
     ChatHistoryMessage,
     ChatMessageWrite,
-    RuntimeEvent,
 )
-from .response_models import ChatSession
+from .response_models import (
+    ChatMessage,
+    ChatMessagesResponse,
+    ChatSession,
+    ChatSessionsResponse,
+)
 
 __all__ = [
     "SimpleFlowClient",
     "SimpleFlowRequestError",
     "SimpleFlowAuthenticationError",
     "SimpleFlowAuthorizationError",
+    "roles_include_any",
+    "can_read_chat_user_scope",
     "InvokeTokenVerifier",
-    "RuntimeEvent",
     "ChatHistoryMessage",
     "ChatMessageWrite",
     "ChatSession",
+    "ChatMessage",
+    "ChatSessionsResponse",
+    "ChatMessagesResponse",
 ]

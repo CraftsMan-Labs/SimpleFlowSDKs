@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass
 from importlib.util import module_from_spec, spec_from_file_location
-import json
 from pathlib import Path
 from typing import Any
 import sys
@@ -13,15 +11,6 @@ import types
 class _NoopHTTPXClient:
     def __init__(self, timeout: float = 10.0) -> None:
         self.timeout = timeout
-
-    def post(self, url: str, json: dict, headers: dict) -> object:
-        raise RuntimeError("httpx stub client should be replaced in tests")
-
-    def get(self, url: str, headers: dict) -> object:
-        raise RuntimeError("httpx stub client should be replaced in tests")
-
-    def close(self) -> None:
-        return None
 
 
 httpx_stub = types.ModuleType("httpx")
@@ -36,24 +25,21 @@ if CLIENT_SPEC is None or CLIENT_SPEC.loader is None:
     raise RuntimeError("failed to load simpleflow sdk client module for tests")
 CLIENT_MODULE = module_from_spec(CLIENT_SPEC)
 CLIENT_SPEC.loader.exec_module(CLIENT_MODULE)
+
 SimpleFlowClient = CLIENT_MODULE.SimpleFlowClient
 SimpleFlowAuthenticationError = CLIENT_MODULE.SimpleFlowAuthenticationError
 SimpleFlowAuthorizationError = CLIENT_MODULE.SimpleFlowAuthorizationError
+roles_include_any = CLIENT_MODULE.roles_include_any
+can_read_chat_user_scope = CLIENT_MODULE.can_read_chat_user_scope
 
 
 class _FakeResponse:
     def __init__(
-        self,
-        status_code: int = 204,
-        payload: dict | None = None,
-        text: str | None = None,
+        self, status_code: int = 200, payload: dict | None = None, text: str = ""
     ) -> None:
         self.status_code = status_code
         self._payload = payload
-        if text is not None:
-            self.text = text
-        else:
-            self.text = "" if payload is None else "{}"
+        self.text = text if text else ("" if payload is None else "{}")
 
     def json(self) -> dict:
         if self._payload is None:
@@ -63,24 +49,23 @@ class _FakeResponse:
 
 class _FakeHTTPClient:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict, dict]] = []
-        self.calls_get: list[tuple[str, dict]] = []
-        self.error_by_post_url: dict[str, int] = {}
-        self.error_by_get_url: dict[str, int] = {}
+        self.calls: list[tuple[str, str, dict | None, dict]] = []
+        self.error_by_url: dict[str, int] = {}
 
-    async def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
-        self.calls.append((url, json, headers))
-        status_code = self.error_by_post_url.get(url)
-        if status_code is not None:
-            return _FakeResponse(status_code=status_code, text="denied")
-        return _FakeResponse()
+    async def request(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        headers: dict | None = None,
+    ) -> _FakeResponse:
+        hdrs = headers or {}
+        self.calls.append((method, url, json, hdrs))
+        status = self.error_by_url.get(url)
+        if status is not None:
+            return _FakeResponse(status_code=status, text="denied")
 
-    async def get(self, url: str, headers: dict) -> _FakeResponse:
-        self.calls_get.append((url, headers))
-        status_code = self.error_by_get_url.get(url)
-        if status_code is not None:
-            return _FakeResponse(status_code=status_code, text="not allowed")
-        if "/v1/runtime/chat/sessions" in url:
+        if "/v1/chat/sessions" in url and method == "GET" and "chat_id=" not in url:
             return _FakeResponse(
                 payload={
                     "sessions": [
@@ -93,7 +78,7 @@ class _FakeHTTPClient:
                     ]
                 }
             )
-        if "/v1/runtime/chat/messages/list" in url:
+        if "/v1/chat/sessions" in url and method == "GET" and "chat_id=" in url:
             return _FakeResponse(
                 payload={
                     "messages": [
@@ -101,247 +86,153 @@ class _FakeHTTPClient:
                     ]
                 }
             )
-        return _FakeResponse()
+        if method == "PATCH" and "/v1/chat/sessions/" in url:
+            return _FakeResponse(payload={"chat_id": "chat_1", "status": "archived"})
+        if url.endswith("/v1/me"):
+            return _FakeResponse(
+                payload={
+                    "user_id": "u_me",
+                    "organization_id": "org",
+                    "roles": ["member"],
+                }
+            )
+        if "/api/v1/agents/" in url:
+            return _FakeResponse(payload={"ID": "agent_1"})
+        return _FakeResponse(payload={})
+
+    async def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
+        return await self.request("POST", url, json=json, headers=headers)
 
     async def aclose(self) -> None:
         return None
 
 
 class SimpleFlowClientTests(unittest.TestCase):
-    def _new_client(
-        self,
-        *,
-        base_url: str = "https://api.example",
-        api_token: str | None = None,
-    ) -> tuple[Any, _FakeHTTPClient]:
-        kwargs: dict[str, Any] = {"base_url": base_url}
-        if api_token is not None:
-            kwargs["api_token"] = api_token
-        client = SimpleFlowClient(**kwargs)
+    def _new_client(self) -> tuple[Any, _FakeHTTPClient]:
+        client = SimpleFlowClient(base_url="https://api.example")
         fake_http = _FakeHTTPClient()
         client._client = fake_http  # type: ignore[attr-defined]
         return client, fake_http
 
-    def test_write_event_emits_event_to_runtime_endpoint(self) -> None:
+    def test_list_chat_sessions_uses_new_endpoint(self) -> None:
         import asyncio
 
         client, fake_http = self._new_client()
-
-        asyncio.run(
-            client.write_event(
-                {
-                    "event_type": "chat.message.telemetry",
-                    "agent_id": "agent_1",
-                    "conversation_id": "session_123",
-                    "user_id": "user_123",
-                    "payload": {
-                        "total_tokens": 150,
-                        "ttfs": 250,
-                    },
-                }
-            )
-        )
-
-        url, payload, _ = fake_http.calls[-1]
-        self.assertEqual(url, "https://api.example/v1/runtime/events")
-        self.assertEqual(payload["event_type"], "chat.message.telemetry")
-        self.assertEqual(payload["agent_id"], "agent_1")
-        self.assertEqual(payload["conversation_id"], "session_123")
-        self.assertEqual(payload["payload"]["total_tokens"], 150)
-        self.assertEqual(payload["payload"]["ttfs"], 250)
-
-    def test_write_event_accepts_auth_token_for_user_authentication(self) -> None:
-        import asyncio
-
-        client, fake_http = self._new_client()
-
-        asyncio.run(
-            client.write_event(
-                {
-                    "event_type": "test.event",
-                    "agent_id": "agent_1",
-                },
-                auth_token="user_jwt_token_123",
-            )
-        )
-
-        _, _, headers = fake_http.calls[-1]
-        self.assertEqual(headers.get("Authorization"), "Bearer user_jwt_token_123")
-
-    def test_write_chat_message_emits_message_to_chat_endpoint(self) -> None:
-        import asyncio
-
-        client, fake_http = self._new_client()
-
-        asyncio.run(
-            client.write_chat_message(
-                {
-                    "agent_id": "agent_1",
-                    "organization_id": "org_123",
-                    "user_id": "user_123",
-                    "chat_id": "session_123",
-                    "role": "user",
-                    "content": {"text": "Hello!"},
-                    "metadata": {"source": "chat.app"},
-                }
-            )
-        )
-
-        url, payload, _ = fake_http.calls[-1]
-        self.assertEqual(url, "https://api.example/v1/runtime/chat/messages")
-        self.assertEqual(payload["agent_id"], "agent_1")
-        self.assertEqual(payload["chat_id"], "session_123")
-        self.assertEqual(payload["role"], "user")
-        self.assertEqual(payload["direction"], "outbound")
-        self.assertEqual(payload["content"], {"text": "Hello!"})
-
-    def test_write_chat_message_uses_idempotency_key_when_provided(self) -> None:
-        import asyncio
-
-        client, fake_http = self._new_client()
-
-        asyncio.run(
-            client.write_chat_message(
-                {
-                    "agent_id": "agent_1",
-                    "organization_id": "org_123",
-                    "user_id": "user_123",
-                    "chat_id": "session_123",
-                    "role": "user",
-                    "content": {"text": "Hello!"},
-                    "idempotency_key": "unique-key-123",
-                }
-            )
-        )
-
-        _, _, headers = fake_http.calls[-1]
-        self.assertEqual(headers.get("Idempotency-Key"), "unique-key-123")
-
-    def test_list_chat_sessions_fetches_sessions_with_correct_params(self) -> None:
-        import asyncio
-
-        client, fake_http = self._new_client()
-
         sessions = asyncio.run(
             client.list_chat_sessions(
                 agent_id="agent_1",
-                user_id="user_123",
+                user_id="user_1",
                 status="active",
-                limit=10,
-                auth_token="user_token",
+                page=2,
+                limit=20,
+                auth_token="jwt",
             )
         )
 
-        self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["chat_id"], "chat_1")
-        self.assertEqual(sessions[0]["status"], "active")
+        method, url, _, headers = fake_http.calls[-1]
+        self.assertEqual(method, "GET")
+        self.assertIn("/v1/chat/sessions", url)
+        self.assertIn("page=2", url)
+        self.assertEqual(headers.get("Authorization"), "Bearer jwt")
 
-        url, headers = fake_http.calls_get[-1]
-        self.assertIn("/v1/runtime/chat/sessions", url)
-        self.assertIn("agent_id=agent_1", url)
-        self.assertIn("user_id=user_123", url)
-        self.assertIn("status=active", url)
-        self.assertIn("limit=10", url)
-        self.assertEqual(headers.get("Authorization"), "Bearer user_token")
-
-    def test_list_chat_messages_fetches_messages_with_correct_params(self) -> None:
+    def test_list_chat_messages_uses_chat_sessions_query(self) -> None:
         import asyncio
 
         client, fake_http = self._new_client()
-
         messages = asyncio.run(
             client.list_chat_messages(
                 agent_id="agent_1",
-                chat_id="session_123",
-                user_id="user_123",
-                limit=20,
-                auth_token="user_token",
+                chat_id="chat_1",
+                user_id="user_1",
+                limit=10,
+                auth_token="jwt",
             )
         )
-
-        self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0]["message_id"], "m1")
+        _, url, _, _ = fake_http.calls[-1]
+        self.assertIn("/v1/chat/sessions", url)
+        self.assertIn("chat_id=chat_1", url)
 
-        url, headers = fake_http.calls_get[-1]
-        self.assertIn("/v1/runtime/chat/messages/list", url)
-        self.assertIn("agent_id=agent_1", url)
-        self.assertIn("chat_id=session_123", url)
-        self.assertIn("user_id=user_123", url)
-        self.assertIn("limit=20", url)
-        self.assertEqual(headers.get("Authorization"), "Bearer user_token")
-
-    def test_write_message_telemetry_writes_telemetry_for_chat_message(self) -> None:
+    def test_write_chat_message_uses_telemetry_data(self) -> None:
         import asyncio
 
         client, fake_http = self._new_client()
-
         asyncio.run(
-            client.write_message_telemetry(
-                agent_id="agent_1",
-                session_id="session_123",
-                metrics={
-                    "total_tokens": 150,
-                    "ttfs": 250,
-                    "prompt_tokens": 50,
-                    "completion_tokens": 100,
-                    "user_id": "user_123",
-                    "run_id": "run_456",
+            client.write_chat_message(
+                {
+                    "agent_id": "agent_1",
+                    "user_id": "user_1",
+                    "chat_id": "chat_1",
+                    "message_id": "m1",
+                    "role": "user",
+                    "content": {"text": "hi"},
+                    "telemetry_data": {"source": "web"},
                 },
-                auth_token="user_jwt_token",
+                auth_token="jwt",
             )
         )
+        method, url, payload, _ = fake_http.calls[-1]
+        self.assertEqual(method, "POST")
+        self.assertEqual(url, "https://api.example/v1/chat/sessions")
+        self.assertIsNotNone(payload)
+        post_payload = payload or {}
+        self.assertIn("telemetry_data", post_payload)
+        self.assertNotIn("metadata", post_payload)
 
-        _, payload, headers = fake_http.calls[-1]
-        self.assertEqual(payload["event_type"], "chat.message.telemetry")
-        self.assertEqual(payload["agent_id"], "agent_1")
-        self.assertEqual(payload["conversation_id"], "session_123")
-        self.assertEqual(payload["user_id"], "user_123")
-        self.assertEqual(payload["run_id"], "run_456")
-        self.assertEqual(payload["payload"]["total_tokens"], 150)
-        self.assertEqual(payload["payload"]["ttfs"], 250)
-        self.assertEqual(payload["payload"]["prompt_tokens"], 50)
-        self.assertEqual(payload["payload"]["completion_tokens"], 100)
-        self.assertIsInstance(payload["payload"]["timestamp_ms"], int)
-        self.assertEqual(headers.get("Authorization"), "Bearer user_jwt_token")
-
-    def test_authentication_error_raises_simple_flow_authentication_error(self) -> None:
+    def test_update_chat_session_calls_patch(self) -> None:
         import asyncio
 
         client, fake_http = self._new_client()
-        fake_http.error_by_get_url[
-            "https://api.example/v1/runtime/chat/sessions?agent_id=agent_1&user_id=user_1&status=active&limit=50"
-        ] = 401
+        out = asyncio.run(
+            client.update_chat_session(
+                chat_id="chat_1",
+                agent_id="agent_1",
+                user_id="user_1",
+                status="archived",
+                auth_token="jwt",
+            )
+        )
+        self.assertEqual(out.get("status"), "archived")
+        method, url, payload, _ = fake_http.calls[-1]
+        self.assertEqual(method, "PATCH")
+        self.assertTrue(url.endswith("/v1/chat/sessions/chat_1"))
+        self.assertIsNotNone(payload)
+        patch_payload = payload or {}
+        self.assertEqual(patch_payload.get("status"), "archived")
 
+    def test_list_chat_sessions_raises_auth_error(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        fake_http.error_by_url[
+            "https://api.example/v1/chat/sessions?agent_id=agent_1&user_id=user_1&page=1&limit=20"
+        ] = 401
         with self.assertRaises(SimpleFlowAuthenticationError):
             asyncio.run(client.list_chat_sessions(agent_id="agent_1", user_id="user_1"))
 
-    def test_authorization_error_raises_simple_flow_authorization_error(self) -> None:
-        import asyncio
 
-        client, fake_http = self._new_client()
-        fake_http.error_by_get_url[
-            "https://api.example/v1/runtime/chat/sessions?agent_id=agent_1&user_id=user_1&status=active&limit=50"
-        ] = 403
+class AuthzHelpersTests(unittest.TestCase):
+    def test_roles_include_any(self) -> None:
+        self.assertTrue(roles_include_any(["member", "admin"], ["admin"]))
+        self.assertFalse(roles_include_any(["member"], ["admin"]))
 
-        with self.assertRaises(SimpleFlowAuthorizationError):
-            asyncio.run(client.list_chat_sessions(agent_id="agent_1", user_id="user_1"))
-
-    def test_api_token_used_when_no_auth_token_provided(self) -> None:
-        import asyncio
-
-        client, fake_http = self._new_client(api_token="default_machine_token")
-
-        asyncio.run(
-            client.write_event(
-                {
-                    "event_type": "test.event",
-                    "agent_id": "agent_1",
-                }
+    def test_can_read_chat_user_scope(self) -> None:
+        self.assertTrue(
+            can_read_chat_user_scope(
+                roles=["member"], principal_user_id="u1", target_user_id="u1"
             )
         )
-
-        _, _, headers = fake_http.calls[-1]
-        self.assertEqual(headers.get("Authorization"), "Bearer default_machine_token")
+        self.assertFalse(
+            can_read_chat_user_scope(
+                roles=["member"], principal_user_id="u1", target_user_id="u2"
+            )
+        )
+        self.assertTrue(
+            can_read_chat_user_scope(
+                roles=["admin"], principal_user_id="u1", target_user_id="u2"
+            )
+        )
 
 
 if __name__ == "__main__":

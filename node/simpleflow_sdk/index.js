@@ -1,28 +1,14 @@
 "use strict";
 
 const DEFAULT_TIMEOUT_MS = 10000;
-const ALLOWED_EVENT_KEYS = new Set([
-  "agent_id",
-  "organization_id",
-  "user_id",
-  "run_id",
-  "event_type",
-  "trace_id",
-  "conversation_id",
-  "request_id",
-  "sampled",
-  "payload",
-]);
 const ALLOWED_CHAT_MESSAGE_KEYS = new Set([
   "agent_id",
-  "organization_id",
-  "run_id",
+  "user_id",
   "chat_id",
   "message_id",
   "role",
-  "direction",
   "content",
-  "metadata",
+  "telemetry_data",
 ]);
 
 /**
@@ -45,6 +31,31 @@ class SimpleFlowRequestError extends Error {
 
 class SimpleFlowAuthenticationError extends SimpleFlowRequestError {}
 class SimpleFlowAuthorizationError extends SimpleFlowRequestError {}
+
+function rolesIncludeAny(userRoles, required) {
+  const have = new Set(
+    (userRoles || []).map((r) => String(r || "").trim()).filter((r) => r !== "")
+  );
+  for (const r of required || []) {
+    if (have.has(String(r || "").trim())) return true;
+  }
+  return false;
+}
+
+/**
+ * Aligns with control-plane requireChatReadScope / requireChatUserScope.
+ * @param {{ roles: string[], principalUserId: string, targetUserId?: string | null }} opts
+ */
+function canReadChatUserScope({ roles, principalUserId, targetUserId }) {
+  const roleSet = new Set(
+    (roles || []).map((r) => String(r || "").trim()).filter((r) => r !== "")
+  );
+  const privileged = roleSet.has("admin") || roleSet.has("super_admin");
+  const target = String(targetUserId == null ? "" : targetUserId).trim();
+  if (target === "") return privileged;
+  if (privileged) return true;
+  return String(principalUserId || "").trim() === target;
+}
 
 function normalizePayload(payload) {
   if (payload == null) return {};
@@ -70,10 +81,8 @@ class SimpleFlowClient {
     baseUrl,
     apiToken = "",
     timeoutMs = DEFAULT_TIMEOUT_MS,
-    runtimeEventsPath = "/v1/runtime/events",
-    runtimeChatMessagesPath = "/v1/runtime/chat/messages",
-    runtimeChatSessionsPath = "/v1/runtime/chat/sessions",
-    runtimeChatMessagesListPath = "/v1/runtime/chat/messages/list",
+    chatSessionsPath = "/v1/chat/sessions",
+    mePath = "/v1/me",
   }) {
     if (!String(baseUrl || "").trim()) {
       throw new Error("simpleflow sdk config error: base_url is required");
@@ -81,21 +90,21 @@ class SimpleFlowClient {
     this.baseUrl = String(baseUrl).replace(/\/+$/, "");
     this.apiToken = String(apiToken || "").trim();
     this.timeoutMs = Number(timeoutMs || DEFAULT_TIMEOUT_MS);
-    this.runtimeEventsPath = runtimeEventsPath;
-    this.runtimeChatMessagesPath = runtimeChatMessagesPath;
-    this.runtimeChatSessionsPath = runtimeChatSessionsPath;
-    this.runtimeChatMessagesListPath = runtimeChatMessagesListPath;
+    this.chatSessionsPath = chatSessionsPath;
+    const mp = String(mePath || "/v1/me").trim() || "/v1/me";
+    this.mePath = mp.startsWith("/") ? mp : `/${mp}`;
   }
 
-  async listChatSessions({ agentId, userId, status = "active", limit = 50, authToken } = {}) {
-    return this.listChatSessionsTyped({ agentId, userId, status, limit, authToken });
+  async listChatSessions({ agentId, userId, status = undefined, page = 1, limit = 20, authToken } = {}) {
+    return this.listChatSessionsTyped({ agentId, userId, status, page, limit, authToken });
   }
 
-  async listChatSessionsTyped({ agentId, userId, status = "active", limit = 50, authToken } = {}) {
-    const path = this._pathWithQuery(this.runtimeChatSessionsPath, {
+  async listChatSessionsTyped({ agentId, userId, status = undefined, page = 1, limit = 20, authToken } = {}) {
+    const path = this._pathWithQuery(this.chatSessionsPath, {
       agent_id: agentId,
       user_id: userId,
       status,
+      page,
       limit,
     });
     const response = await this._get(path, { authToken });
@@ -103,8 +112,8 @@ class SimpleFlowClient {
     return response.sessions.filter((x) => x && typeof x === "object").map((session) => normalizeChatSession(session));
   }
 
-  async listChatMessages({ agentId, chatId, userId, limit = 50, authToken } = {}) {
-    const path = this._pathWithQuery(this.runtimeChatMessagesListPath, {
+  async listChatMessages({ agentId, chatId, userId, limit = 20, authToken } = {}) {
+    const path = this._pathWithQuery(this.chatSessionsPath, {
       agent_id: agentId,
       chat_id: chatId,
       user_id: userId,
@@ -121,58 +130,33 @@ class SimpleFlowClient {
     for (const [key, value] of Object.entries(body)) {
       if (ALLOWED_CHAT_MESSAGE_KEYS.has(key)) sanitized[key] = value;
     }
-    if (!sanitized.direction) sanitized.direction = "outbound";
-    if (sanitized.content == null) sanitized.content = {};
-    if (sanitized.metadata == null) sanitized.metadata = {};
-    const headers = {};
-    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-    await this._post(this.runtimeChatMessagesPath, sanitized, { extraHeaders: headers, authToken });
-  }
-
-  async writeEvent(event, { authToken } = {}) {
-    const body = normalizePayload(event);
-    const eventType = String(body.event_type || body.type || "").trim();
-    const idempotencyKey = String(body.idempotency_key || "").trim();
-    const sanitized = { event_type: eventType };
-    for (const [key, value] of Object.entries(body)) {
-      if (ALLOWED_EVENT_KEYS.has(key)) sanitized[key] = value;
+    const required = ["agent_id", "user_id", "chat_id", "message_id", "role"];
+    const missing = required.filter((key) => String(sanitized[key] || "").trim() === "");
+    if (missing.length > 0) {
+      throw new Error(`simpleflow sdk payload error: missing required keys: ${missing.join(", ")}`);
     }
+    if (sanitized.content == null) sanitized.content = {};
+    if (sanitized.telemetry_data == null) sanitized.telemetry_data = {};
     const headers = {};
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-    await this._post(this.runtimeEventsPath, sanitized, { extraHeaders: headers, authToken });
+    return this._post(this.chatSessionsPath, sanitized, { extraHeaders: headers, authToken });
   }
 
-  /**
-   * Write telemetry metrics for a chat message.
-   * @param {string} agentId - Agent identifier
-   * @param {string} sessionId - Chat session ID
-   * @param {Object} metrics - Telemetry metrics
-   * @param {number} metrics.total_tokens - Total tokens used
-   * @param {number} metrics.ttfs - Time to first token (ms)
-   * @param {number} [metrics.prompt_tokens] - Input tokens (optional)
-   * @param {number} [metrics.completion_tokens] - Output tokens (optional)
-   * @param {string} [metrics.user_id] - User identifier (optional)
-   * @param {string} [metrics.run_id] - Run identifier (optional)
-   * @param {string} authToken - User's JWT bearer token
-   */
-  async writeMessageTelemetry(agentId, sessionId, metrics, authToken) {
-    await this.writeEvent(
-      {
-        event_type: "chat.message.telemetry",
-        agent_id: agentId,
-        conversation_id: sessionId,
-        user_id: metrics.user_id || "",
-        run_id: metrics.run_id || "",
-        payload: {
-          total_tokens: metrics.total_tokens,
-          ttfs: metrics.ttfs,
-          prompt_tokens: metrics.prompt_tokens || null,
-          completion_tokens: metrics.completion_tokens || null,
-          timestamp_ms: Date.now(),
-        },
-      },
-      { authToken }
-    );
+  async updateChatSession({ chatId, agentId, userId, title, status, authToken } = {}) {
+    const cid = String(chatId || "").trim();
+    if (!cid) throw new Error("simpleflow sdk config error: chatId is required");
+    const body = {
+      agent_id: agentId,
+      user_id: userId,
+    };
+    if (title !== undefined) body.title = title;
+    if (status !== undefined) body.status = status;
+    return this._request({
+      method: "PATCH",
+      path: `${this.chatSessionsPath}/${encodeURIComponent(cid)}`,
+      body,
+      authToken,
+    });
   }
 
   _pathWithQuery(path, query) {
@@ -244,6 +228,41 @@ class SimpleFlowClient {
     if (statusCode === 403) throw new SimpleFlowAuthorizationError({ statusCode, detail, path });
     throw new SimpleFlowRequestError({ statusCode, detail, path });
   }
+
+  async fetchCurrentUser({ authToken }) {
+    const token = String(authToken || "").trim();
+    if (!token) throw new Error("simpleflow sdk config error: authToken is required");
+    return this._get(this.mePath, { authToken: token });
+  }
+
+  async fetchAgent({ agentId, authToken }) {
+    const token = String(authToken || "").trim();
+    if (!token) throw new Error("simpleflow sdk config error: authToken is required");
+    const aid = String(agentId || "").trim();
+    if (!aid) throw new Error("simpleflow sdk config error: agentId is required");
+    return this._get(`/api/v1/agents/${encodeURIComponent(aid)}`, { authToken: token });
+  }
+
+  async authorizeChatRead({ authToken, agentId, chatUserId }) {
+    const me = await this.fetchCurrentUser({ authToken });
+    const roles = Array.isArray(me.roles) ? me.roles.map((x) => String(x)).filter((x) => x.trim() !== "") : [];
+    const uid = String(me.user_id || "").trim();
+    if (
+      !canReadChatUserScope({
+        roles,
+        principalUserId: uid,
+        targetUserId: chatUserId == null ? "" : chatUserId,
+      })
+    ) {
+      throw new SimpleFlowAuthorizationError({
+        statusCode: 403,
+        detail: "chat read scope denied for this principal and target user_id",
+        path: "/v1/chat/sessions",
+      });
+    }
+    const agent = await this.fetchAgent({ agentId, authToken });
+    return { me, agent };
+  }
 }
 
 module.exports = {
@@ -251,4 +270,6 @@ module.exports = {
   SimpleFlowRequestError,
   SimpleFlowAuthenticationError,
   SimpleFlowAuthorizationError,
+  rolesIncludeAny,
+  canReadChatUserScope,
 };
