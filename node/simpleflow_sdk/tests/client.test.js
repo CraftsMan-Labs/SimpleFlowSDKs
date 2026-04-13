@@ -63,7 +63,7 @@ test("listChatSessions uses /v1/chat/sessions", async () => {
   const { server, baseUrl } = await startServer((req, res) => {
     capturedPath = req.url || "";
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ sessions: [{ chat_id: "chat_1", status: "active" }] }));
+    res.end(JSON.stringify({ sessions: [{ chat_id: "chat_1", status: "active" }], page: 2, limit: 10, has_more: true }));
   });
 
   try {
@@ -79,6 +79,50 @@ test("listChatSessions uses /v1/chat/sessions", async () => {
     assert.match(capturedPath, /\/v1\/chat\/sessions/);
     assert.match(capturedPath, /page=2/);
     assert.match(capturedPath, /limit=10/);
+  } finally {
+    server.close();
+  }
+});
+
+test("listChatSessionsPage returns pagination metadata", async () => {
+  const { server, baseUrl } = await startServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ sessions: [{ chat_id: "chat_1", status: "active" }], page: 3, limit: 20, has_more: true }));
+  });
+
+  try {
+    const client = new SimpleFlowClient({ baseUrl });
+    const page = await client.listChatSessionsPage({
+      agentId: "agent_1",
+      userId: "user_1",
+      page: 3,
+      limit: 20,
+      authToken: "jwt",
+    });
+    assert.equal(page.page, 3);
+    assert.equal(page.limit, 20);
+    assert.equal(page.has_more, true);
+  } finally {
+    server.close();
+  }
+});
+
+test("listChatSessions omits user_id when not provided", async () => {
+  let capturedPath = "";
+  const { server, baseUrl } = await startServer((req, res) => {
+    capturedPath = req.url || "";
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ sessions: [{ chat_id: "chat_1", status: "active" }] }));
+  });
+
+  try {
+    const client = new SimpleFlowClient({ baseUrl });
+    const sessions = await client.listChatSessions({
+      agentId: "agent_1",
+      authToken: "jwt",
+    });
+    assert.equal(sessions.length, 1);
+    assert.doesNotMatch(capturedPath, /user_id=/);
   } finally {
     server.close();
   }
@@ -181,6 +225,22 @@ test("rolesIncludeAny and canReadChatUserScope helper parity", () => {
       roles: ["member"],
       principalUserId: "u1",
       targetUserId: "u1",
+    }),
+    true
+  );
+  assert.equal(
+    canReadChatUserScope({
+      roles: ["member"],
+      principalUserId: "u1",
+      targetUserId: "",
+    }),
+    false
+  );
+  assert.equal(
+    canReadChatUserScope({
+      roles: ["super_admin"],
+      principalUserId: "u1",
+      targetUserId: "",
     }),
     true
   );

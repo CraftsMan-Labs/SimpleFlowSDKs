@@ -20,6 +20,14 @@ const ALLOWED_CHAT_MESSAGE_KEYS = new Set([
  * @property {Object<string, any>=} metadata
  */
 
+/**
+ * @typedef {Object} ChatSessionsPage
+ * @property {ChatSession[]=} sessions
+ * @property {number=} page
+ * @property {number=} limit
+ * @property {boolean=} has_more
+ */
+
 class SimpleFlowRequestError extends Error {
   constructor({ statusCode, detail, path }) {
     super(`simpleflow sdk request error: status=${statusCode} path=${path} detail=${detail}`);
@@ -95,11 +103,17 @@ class SimpleFlowClient {
     this.mePath = mp.startsWith("/") ? mp : `/${mp}`;
   }
 
-  async listChatSessions({ agentId, userId, status = undefined, page = 1, limit = 20, authToken } = {}) {
+  async listChatSessions({ agentId, userId = undefined, status = undefined, page = 1, limit = 20, authToken } = {}) {
     return this.listChatSessionsTyped({ agentId, userId, status, page, limit, authToken });
   }
 
-  async listChatSessionsTyped({ agentId, userId, status = undefined, page = 1, limit = 20, authToken } = {}) {
+  async listChatSessionsTyped({ agentId, userId = undefined, status = undefined, page = 1, limit = 20, authToken } = {}) {
+    const response = await this.listChatSessionsPage({ agentId, userId, status, page, limit, authToken });
+    if (!Array.isArray(response.sessions)) return [];
+    return response.sessions.filter((x) => x && typeof x === "object").map((session) => normalizeChatSession(session));
+  }
+
+  async listChatSessionsPage({ agentId, userId = undefined, status = undefined, page = 1, limit = 20, authToken } = {}) {
     const path = this._pathWithQuery(this.chatSessionsPath, {
       agent_id: agentId,
       user_id: userId,
@@ -107,12 +121,10 @@ class SimpleFlowClient {
       page,
       limit,
     });
-    const response = await this._get(path, { authToken });
-    if (!Array.isArray(response.sessions)) return [];
-    return response.sessions.filter((x) => x && typeof x === "object").map((session) => normalizeChatSession(session));
+    return this._get(path, { authToken });
   }
 
-  async listChatMessages({ agentId, chatId, userId, limit = 20, authToken } = {}) {
+  async listChatMessages({ agentId, chatId, userId = undefined, limit = 20, authToken } = {}) {
     const path = this._pathWithQuery(this.chatSessionsPath, {
       agent_id: agentId,
       chat_id: chatId,

@@ -25,6 +25,7 @@ class ChatSessionsResponse(TypedDict, total=False):
     sessions: list[ChatSession]
     page: int
     limit: int
+    has_more: bool
 
 
 class ChatMessagesResponse(TypedDict, total=False):

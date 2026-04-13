@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 import httpx
 
 if TYPE_CHECKING:
-    from .response_models import ChatSession
+    from .response_models import ChatSession, ChatSessionsResponse
 
 
 class SimpleFlowRequestError(RuntimeError):
@@ -393,7 +393,7 @@ class SimpleFlowClient:
         self,
         *,
         agent_id: str,
-        user_id: str,
+        user_id: str | None = None,
         status: str | None = None,
         page: int = 1,
         limit: int = 20,
@@ -409,16 +409,16 @@ class SimpleFlowClient:
         )
         return [dict(session) for session in sessions_typed]
 
-    async def list_chat_sessions_typed(
+    async def list_chat_sessions_page(
         self,
         *,
         agent_id: str,
-        user_id: str,
+        user_id: str | None = None,
         status: str | None = None,
         page: int = 1,
         limit: int = 20,
         auth_token: str | None = None,
-    ) -> list[ChatSession]:
+    ) -> ChatSessionsResponse:
         path = self._path_with_query(
             self._chat_sessions_path,
             {
@@ -430,19 +430,55 @@ class SimpleFlowClient:
             },
         )
         response = await self._get(path, auth_token=auth_token)
+        result: dict[str, Any] = {}
+        sessions = response.get("sessions")
+        if isinstance(sessions, list):
+            result["sessions"] = [
+                _normalize_chat_session(item)
+                for item in sessions
+                if isinstance(item, dict)
+            ]
+        page_value = response.get("page")
+        if isinstance(page_value, int):
+            result["page"] = page_value
+        limit_value = response.get("limit")
+        if isinstance(limit_value, int):
+            result["limit"] = limit_value
+        has_more = response.get("has_more")
+        if isinstance(has_more, bool):
+            result["has_more"] = has_more
+
+        return result  # type: ignore[return-value]
+
+    async def list_chat_sessions_typed(
+        self,
+        *,
+        agent_id: str,
+        user_id: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+        auth_token: str | None = None,
+    ) -> list[ChatSession]:
+        response = await self.list_chat_sessions_page(
+            agent_id=agent_id,
+            user_id=user_id,
+            status=status,
+            page=page,
+            limit=limit,
+            auth_token=auth_token,
+        )
         sessions = response.get("sessions")
         if not isinstance(sessions, list):
             return []
-        return [
-            _normalize_chat_session(item) for item in sessions if isinstance(item, dict)
-        ]
+        return sessions
 
     async def list_chat_messages(
         self,
         *,
         agent_id: str,
         chat_id: str,
-        user_id: str,
+        user_id: str | None = None,
         limit: int = 20,
         auth_token: str | None = None,
     ) -> list[dict[str, Any]]:

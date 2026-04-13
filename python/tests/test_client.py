@@ -75,7 +75,10 @@ class _FakeHTTPClient:
                             "agent_id": "agent_1",
                             "user_id": "user_1",
                         }
-                    ]
+                    ],
+                    "page": 2,
+                    "limit": 20,
+                    "has_more": True,
                 }
             )
         if "/v1/chat/sessions" in url and method == "GET" and "chat_id=" in url:
@@ -154,6 +157,37 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertIn("/v1/chat/sessions", url)
         self.assertIn("chat_id=chat_1", url)
 
+    def test_list_chat_sessions_page_returns_has_more(self) -> None:
+        import asyncio
+
+        client, _fake_http = self._new_client()
+        page = asyncio.run(
+            client.list_chat_sessions_page(
+                agent_id="agent_1",
+                user_id="user_1",
+                page=2,
+                limit=20,
+                auth_token="jwt",
+            )
+        )
+        self.assertEqual(page.get("page"), 2)
+        self.assertEqual(page.get("limit"), 20)
+        self.assertEqual(page.get("has_more"), True)
+
+    def test_list_chat_sessions_without_user_id_for_admin_flow(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        sessions = asyncio.run(
+            client.list_chat_sessions(
+                agent_id="agent_1",
+                auth_token="jwt",
+            )
+        )
+        self.assertEqual(sessions[0]["chat_id"], "chat_1")
+        _method, url, _payload, _headers = fake_http.calls[-1]
+        self.assertNotIn("user_id=", url)
+
     def test_write_chat_message_uses_telemetry_data(self) -> None:
         import asyncio
 
@@ -231,6 +265,16 @@ class AuthzHelpersTests(unittest.TestCase):
         self.assertTrue(
             can_read_chat_user_scope(
                 roles=["admin"], principal_user_id="u1", target_user_id="u2"
+            )
+        )
+        self.assertFalse(
+            can_read_chat_user_scope(
+                roles=["member"], principal_user_id="u1", target_user_id=""
+            )
+        )
+        self.assertTrue(
+            can_read_chat_user_scope(
+                roles=["super_admin"], principal_user_id="u1", target_user_id=""
             )
         )
 
