@@ -4,12 +4,11 @@ Package: `simpleflow-sdk`
 
 ## Key APIs
 
-- `write_event(...)`
+- `list_chat_sessions(...)`
+- `list_chat_messages(...)`
 - `write_chat_message(...)`
-- `publish_queue_contract(...)`
-- `write_event_from_workflow_result(...)`
-- `write_chat_message_from_workflow_result(...)`
-- `with_telemetry(...).emit_span(...)`
+- `update_chat_session(...)`
+- `authorize_runtime_chat_read(...)`
 
 ## Install
 
@@ -27,14 +26,15 @@ client = SimpleFlowClient(
     api_token="<token>",
 )
 
-client.write_event(
+await client.write_chat_message(
     {
-        "event_type": "runtime.workflow.completed",
         "agent_id": "agent_support_v1",
-        "organization_id": "org_123",
         "user_id": "user_123",
-        "run_id": "run_123",
-        "payload": {"source": "python-sdk-docs"},
+        "chat_id": "chat_123",
+        "message_id": "m_123",
+        "role": "user",
+        "content": {"text": "hello"},
+        "telemetry_data": {"source": "python-sdk-docs"},
     }
 )
 ```

@@ -1,14 +1,11 @@
-# SimpleFlow Node SDK (Remote Runtime)
+# SimpleFlow Node SDK
 
 This SDK helps Node.js remote runtime backends integrate with the SimpleFlow control plane.
 
 ## Features
 
-- Runtime API client for invoke and runtime writes (`writeEvent`, `writeChatMessage`, `publishQueueContract`).
-- Runtime connect helper for `/v1/runtime/connect`.
-- Workflow-result bridge (`writeEventFromWorkflowResult`) that emits canonical `telemetry-envelope.v1` payloads.
-- Telemetry bridge with `simpleflow` and `otlp` modes.
-- Chat history list/create/update helpers.
+- API client for auth helpers and chat session operations (`listChatSessions`, `listChatMessages`, `writeChatMessage`, `updateChatSession`).
+- Chat scope authorization helper for preflight checks (`authorizeChatRead`).
 
 ## Install
 
@@ -23,13 +20,16 @@ const { SimpleFlowClient } = require("simpleflow-sdk")
 
 const client = new SimpleFlowClient({
   baseUrl: "https://api.simpleflow.example",
-  apiToken: "runtime-token",
+  apiToken: "user-jwt",
 })
 
-await client.writeEvent({
-  event_type: "runtime.invoke.accepted",
-  agent_id: "agent-1",
-  run_id: "run_123",
-  payload: { status: "accepted" },
+await client.writeChatMessage({
+  agent_id: "agent_1",
+  user_id: "user_1",
+  chat_id: "chat_1",
+  message_id: "m_1",
+  role: "user",
+  content: { text: "Hello" },
+  telemetry_data: { source: "web" },
 })
 ```

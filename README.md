@@ -18,7 +18,7 @@ pip install simpleflow-sdk
 
 ```bash
 export SIMPLEFLOW_BASE_URL="http://localhost:8080"
-export SIMPLEFLOW_API_TOKEN="your_machine_token"  # For machine auth
+export SIMPLEFLOW_API_TOKEN="your_user_jwt"
 ```
 
 ### 3) Usage
@@ -48,27 +48,22 @@ async function chatFlow(userToken, agentId, userId) {
   // 2. Write a chat message
   await client.writeChatMessage({
     agent_id: agentId,
-    organization_id: 'org_123',
     user_id: userId,
     chat_id: sessionId,
+    message_id: 'm_001',
     role: 'user',
     content: { text: 'Hello!' },
-    metadata: { source: 'chat.app' },
+    telemetry_data: { source: 'chat.app' },
   }, { authToken: userToken });
-  
-  // 3. Store telemetry for the message
-  await client.writeMessageTelemetry(
+
+  // 3. Update session status/title if needed
+  await client.updateChatSession({
+    chatId: sessionId,
     agentId,
-    sessionId,
-    {
-      total_tokens: 150,
-      ttfs: 250,  // Time to first token in ms
-      prompt_tokens: 50,
-      completion_tokens: 100,
-      user_id: userId,
-    },
-    userToken
-  );
+    userId,
+    status: 'active',
+    authToken: userToken,
+  });
 }
 ```
 
@@ -93,25 +88,20 @@ async def chat_flow(user_token: str, agent_id: str, user_id: str):
     # 2. Write a chat message
     await client.write_chat_message({
         "agent_id": agent_id,
-        "organization_id": "org_123",
         "user_id": user_id,
         "chat_id": session_id,
+        "message_id": "m_001",
         "role": "user",
         "content": {"text": "Hello!"},
-        "metadata": {"source": "chat.app"},
+        "telemetry_data": {"source": "chat.app"},
     })
-    
-    # 3. Store telemetry for the message
-    await client.write_message_telemetry(
+
+    # 3. Update session status/title if needed
+    await client.update_chat_session(
+        chat_id=session_id,
         agent_id=agent_id,
-        session_id=session_id,
-        metrics={
-            "total_tokens": 150,
-            "ttfs": 250,
-            "prompt_tokens": 50,
-            "completion_tokens": 100,
-            "user_id": user_id,
-        },
+        user_id=user_id,
+        status="active",
         auth_token=user_token,
     )
 ```
@@ -123,11 +113,7 @@ async def chat_flow(user_token: str, agent_id: str, user_id: str):
 - `listChatSessions()` / `list_chat_sessions()` - List chat sessions for a user
 - `listChatMessages()` / `list_chat_messages()` - List messages in a chat session
 - `writeChatMessage()` / `write_chat_message()` - Store a chat message
-
-### Telemetry
-
-- `writeEvent()` / `write_event()` - Write telemetry event
-- `writeMessageTelemetry()` / `write_message_telemetry()` - Write message metrics (total_tokens, ttfs)
+- `updateChatSession()` / `update_chat_session()` - Update session title or status
 
 ### Auth
 
@@ -157,10 +143,10 @@ make publish-python
 
 ## Endpoints Used
 
-- `GET /v1/runtime/chat/sessions` - List chat sessions
-- `GET /v1/runtime/chat/messages/list` - List chat messages
-- `POST /v1/runtime/chat/messages` - Write chat message
-- `POST /v1/runtime/events` - Write telemetry event
+- `GET /v1/chat/sessions` - List chat sessions
+- `GET /v1/chat/sessions?chat_id=...` - List chat messages
+- `POST /v1/chat/sessions` - Write chat message
+- `PATCH /v1/chat/sessions/{chat_id}` - Update chat session
 
 ## License
 

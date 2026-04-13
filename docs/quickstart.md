@@ -91,35 +91,19 @@ const client = new SimpleFlowClient({
   oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
 })
 
-const runId = `run_${crypto.randomUUID().slice(0, 8)}`
-
-await client.writeEvent({
-  event_type: "runtime.invoke.accepted",
-  agent_id: process.env.SIMPLEFLOW_AGENT_ID,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
-  user_id: process.env.SIMPLEFLOW_USER_ID,
-  run_id: runId,
-  payload: { source: "quickstart-js" },
-})
+const messageId = `m_${crypto.randomUUID().slice(0, 8)}`
 
 await client.writeChatMessage({
   agent_id: process.env.SIMPLEFLOW_AGENT_ID,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID,
-  run_id: runId,
+  user_id: process.env.SIMPLEFLOW_USER_ID,
   chat_id: "chat_local_demo",
+  message_id: messageId,
   role: "assistant",
   content: { text: "Hello from JS SDK" },
+  telemetry_data: { source: "quickstart-js" },
 })
 
-const telemetry = client.withTelemetry({ mode: "simpleflow", sampleRate: 1.0 })
-await telemetry.emitSpan({
-  agentId: process.env.SIMPLEFLOW_AGENT_ID,
-  runId,
-  traceId: "trace_local_demo",
-  span: { name: "llm.call", start_time_ms: 1000, end_time_ms: 1400 },
-})
-
-const messages = await client.listChatHistoryMessages({
+const messages = await client.listChatMessages({
   agentId: process.env.SIMPLEFLOW_AGENT_ID,
   chatId: "chat_local_demo",
   userId: process.env.SIMPLEFLOW_USER_ID,
@@ -129,7 +113,7 @@ const messages = await client.listChatHistoryMessages({
 console.log("history_count", messages.length)
 ```
 
-## 5) TypeScript: telemetry
+## 5) TypeScript: chat write
 
 ```ts
 import { SimpleFlowClient } from "simpleflow-sdk"
@@ -141,19 +125,18 @@ const client = new SimpleFlowClient({
   oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
 })
 
-await client.writeEvent({
-  event_type: "runtime.workflow.completed",
+await client.writeChatMessage({
   agent_id: process.env.SIMPLEFLOW_AGENT_ID!,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID!,
   user_id: process.env.SIMPLEFLOW_USER_ID!,
-  run_id: "run_ts_demo",
-  conversation_id: "chat_ts_demo",
-  request_id: "req_ts_demo",
-  payload: { source: "quickstart-ts" },
+  chat_id: "chat_ts_demo",
+  message_id: "m_ts_demo",
+  role: "assistant",
+  content: { text: "Hello from TS SDK" },
+  telemetry_data: { source: "quickstart-ts" },
 })
 ```
 
-## 6) Python: telemetry + chat
+## 6) Python: chat
 
 ```python
 import os
@@ -166,25 +149,15 @@ client = SimpleFlowClient(
     oauth_client_secret=os.getenv("MACHINE_CLIENT_SECRET"),
 )
 
-client.write_event(
+await client.write_chat_message(
     {
-        "event_type": "runtime.workflow.completed",
         "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
-        "organization_id": os.environ["SIMPLEFLOW_ORGANIZATION_ID"],
         "user_id": os.environ["SIMPLEFLOW_USER_ID"],
-        "run_id": "run_py_demo",
-        "payload": {"source": "quickstart-python"},
-    }
-)
-
-client.write_chat_message(
-    {
-        "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
-        "organization_id": os.environ["SIMPLEFLOW_ORGANIZATION_ID"],
-        "run_id": "run_py_demo",
         "chat_id": "chat_py_demo",
+        "message_id": "m_py_demo",
         "role": "assistant",
         "content": {"text": "Hello from Python SDK"},
+        "telemetry_data": {"source": "quickstart-python"},
     }
 )
 ```

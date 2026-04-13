@@ -74,23 +74,34 @@ resp.raise_for_status()
 data = resp.json()
 ```
 
-## Chat history (SDK)
+## Chat sessions (SDK)
 
 ```python
-created = client.create_chat_history_message(
-    agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
-    chat_id="chat_123",
-    user_id="user_123",
-    role="user",
-    content={"text": "hello"},
-    metadata={"source": "web"},
+await client.write_chat_message(
+    {
+        "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
+        "chat_id": "chat_123",
+        "user_id": "user_123",
+        "message_id": "m_123",
+        "role": "user",
+        "content": {"text": "hello"},
+        "telemetry_data": {"source": "web"},
+    },
     auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
 )
 
-messages = client.list_chat_history_messages(
+messages = await client.list_chat_messages(
     agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
     chat_id="chat_123",
     user_id="user_123",
+    auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
+)
+
+await client.update_chat_session(
+    chat_id="chat_123",
+    agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
+    user_id="user_123",
+    status="active",
     auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
 )
 ```

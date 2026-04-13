@@ -4,33 +4,27 @@ This matrix tracks tested compatibility between SimpleAgents, SimpleFlow SDKs, a
 
 ## Contract Baseline
 
-- Runtime events endpoint: `POST /v1/runtime/events`
+- Chat write endpoint: `POST /v1/chat/sessions`
 - Control-plane runtime endpoints:
   - `POST /v1/runtime/connect`
   - `POST /v1/runtime/invoke`
-- Chat history endpoints:
-  - `GET /v1/chat/history/messages`
-  - `POST /v1/chat/history/messages`
-  - `PATCH /v1/chat/history/messages/{message_id}`
-- Required correlation envelope fields:
-  - `agent_id`, `run_id`, `trace_id`, `request_id`, `conversation_id`, `sampled`
+- Chat session endpoints:
+  - `GET /v1/chat/sessions`
+  - `POST /v1/chat/sessions`
+  - `PATCH /v1/chat/sessions/{chat_id}`
+- Required chat write fields:
+  - `agent_id`, `user_id`, `chat_id`, `message_id`, `role`
 
 ## Matrix
 
 | SimpleAgents | SimpleFlowSDKs | SimpleFlow API Contract | Status | Notes |
 | --- | --- | --- | --- | --- |
-| `feat/telemetry-sample-rate-enforcement` and later | `main` (this repository, current) | `v1 runtime envelope` | validated | Deterministic trace-id-based sampling and canonical `telemetry-envelope.v1` payload mapping are applied by `write_event_from_workflow_result(...)`. |
+| `feat/telemetry-sample-rate-enforcement` and later | `main` (this repository, current) | `v1 chat sessions contract` | validated | SDK chat helpers target `/v1/chat/sessions` for list/write/patch behavior. |
 
 ## Validation Notes
 
-- Go SDK tests cover workflow-result event mapping and telemetry bridge event emission.
-- Python SDK tests cover workflow-result event mapping and deterministic sampling helper behavior.
-- Node SDK tests cover workflow-result event mapping and telemetry bridge event emission.
-- Go and Python SDK tests cover chat history list APIs.
-- Both SDKs support telemetry mode routing:
-  - `simpleflow`: emits runtime telemetry span events.
-  - `otlp`: forwards spans to the caller-provided OTLP sink.
-- Workflow-result bridge emits a canonical payload contract documented in `telemetry-envelope-v1-spec.md`.
+- Python and Node SDK tests cover `/v1/chat/sessions` list/write/patch and authz helper behavior.
+- Go and Python SDK tests cover chat history/session read APIs.
 
 ## Versioning Guidance
 

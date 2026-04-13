@@ -1,14 +1,14 @@
-# SimpleFlow Python SDK (Remote Runtime)
+# SimpleFlow Python SDK
 
 This SDK helps Python remote runtime backends integrate with the SimpleFlow control plane.
 
 ## Features
 
-- API client for auth/session helpers, runtime connect, invoke, runtime events, chat message writes, queue contract publication, and chat history list/create/update.
+- API client for auth/session helpers and chat session operations (`list_chat_sessions`, `list_chat_messages`, `write_chat_message`, `update_chat_session`).
 - Invoke token verification helper for control-plane issued tokens (HS256 shared key and RS256 public key/JWKS usage).
 - Method-level auth token overrides on control-plane and lifecycle methods.
 - Typed request errors (`SimpleFlowAuthenticationError`, `SimpleFlowAuthorizationError`, `SimpleFlowLifecycleError`).
-- Typed dataclasses for common runtime payloads and telemetry span envelopes.
+- Typed dataclasses for chat payloads.
 - Telemetry bridge with `simpleflow` and `otlp` modes.
 
 ## Install
@@ -20,49 +20,31 @@ pip install -e ./python
 ## Minimal usage
 
 ```python
-from simpleflow_sdk import RuntimeEvent, SimpleFlowClient
+from simpleflow_sdk import SimpleFlowClient
 
-client = SimpleFlowClient(base_url="https://api.simpleflow.example", api_token="runtime-token")
-client.write_event(
-    RuntimeEvent(
-        type="runtime.invoke.accepted",
-        agent_id="agent-1",
-        run_id="run_123"
-    )
+client = SimpleFlowClient(base_url="https://api.simpleflow.example", api_token="user-jwt")
+
+sessions = await client.list_chat_sessions(
+    agent_id="agent_1",
+    user_id="user_1",
+    page=1,
+    limit=20,
 )
 
-telemetry = client.with_telemetry(mode="simpleflow", sample_rate=0.2)
-telemetry.emit_span(
-    span={"name": "llm.call", "start_time_ms": 1000, "end_time_ms": 1250},
-    trace_id="trace_123",
-    run_id="run_123",
-    agent_id="agent-1",
+await client.write_chat_message(
+    {
+        "agent_id": "agent_1",
+        "user_id": "user_1",
+        "chat_id": "chat_1",
+        "message_id": "m_1",
+        "role": "user",
+        "content": {"text": "Hello"},
+        "telemetry_data": {"source": "web"},
+    }
 )
 ```
 
-## Security note: runtime endpoint allowlist
+## Notes
 
-If your control-plane backend enables `RUNTIME_ENDPOINT_ALLOWLIST`, runtime connect calls from this SDK will fail with `400` unless the `endpoint_url` host is included in that allowlist.
-
-## Auth verifier usage (legacy invoke tokens)
-
-Use this only if your runtime validates control-plane-issued invoke tokens. For pass-through auth, validate the caller's IdP access tokens directly.
-
-```python
-from simpleflow_sdk import InvokeTokenVerifier
-
-hs_verifier = InvokeTokenVerifier.for_hs256_shared_key(
-    issuer="https://api.simpleflow.example",
-    audience="runtime",
-    shared_key="local-dev-secret",
-)
-
-rs_verifier = InvokeTokenVerifier.for_rs256_public_key(
-    issuer="https://api.simpleflow.example",
-    audience="runtime",
-    public_key=public_key_pem,
-)
-
-# You can also pass a key per call when needed.
-claims = hs_verifier.verify(token)
-```
+- `write_chat_message` requires: `agent_id`, `user_id`, `chat_id`, `message_id`, `role`.
+- `list_chat_messages` uses `GET /v1/chat/sessions` with `chat_id` query filtering.

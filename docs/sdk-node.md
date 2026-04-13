@@ -4,12 +4,11 @@ Package: `simpleflow-sdk`
 
 ## Key APIs
 
-- `writeEvent(...)`
+- `listChatSessions(...)`
+- `listChatMessages(...)`
 - `writeChatMessage(...)`
-- `publishQueueContract(...)`
-- `writeEventFromWorkflowResult(...)`
-- `writeChatMessageFromWorkflowResult(...)`
-- `withTelemetry(...).emitSpan(...)`
+- `updateChatSession(...)`
+- `authorizeChatRead(...)`
 
 ## Install
 
@@ -27,13 +26,14 @@ const client = new SimpleFlowClient({
   apiToken: process.env.SIMPLEFLOW_API_TOKEN,
 })
 
-await client.writeEvent({
-  event_type: "runtime.workflow.completed",
+await client.writeChatMessage({
   agent_id: "agent_support_v1",
-  organization_id: "org_123",
   user_id: "user_123",
-  run_id: "run_123",
-  payload: { source: "node-sdk-docs" },
+  chat_id: "chat_123",
+  message_id: "m_123",
+  role: "user",
+  content: { text: "hello" },
+  telemetry_data: { source: "node-sdk-docs" },
 })
 ```
 
@@ -47,13 +47,14 @@ const client = new SimpleFlowClient({
   apiToken: process.env.SIMPLEFLOW_API_TOKEN!,
 })
 
-await client.writeEvent({
-  event_type: "runtime.workflow.completed",
+await client.writeChatMessage({
   agent_id: process.env.SIMPLEFLOW_AGENT_ID!,
-  organization_id: process.env.SIMPLEFLOW_ORGANIZATION_ID!,
   user_id: process.env.SIMPLEFLOW_USER_ID!,
-  run_id: "run_ts_demo",
-  payload: { source: "ts-sdk-docs" },
+  chat_id: "chat_123",
+  message_id: "m_ts_demo",
+  role: "user",
+  content: { text: "hello" },
+  telemetry_data: { source: "ts-sdk-docs" },
 })
 ```
 

@@ -67,25 +67,31 @@ const response = await fetch(`${process.env.SIMPLEFLOW_BASE_URL}/api/v1/chat`, {
 const data = await response.json()
 ```
 
-## Chat history (SDK)
+## Chat sessions (SDK)
 
 ```js
-const created = await client.createChatHistoryMessage(
-  {
-    agent_id: process.env.SIMPLEFLOW_AGENT_ID,
-    chat_id: "chat_123",
-    user_id: "user_123",
-    role: "user",
-    content: { text: "hello" },
-    metadata: { source: "web" },
-  },
-  { authToken: process.env.SIMPLEFLOW_USER_BEARER },
-)
+await client.writeChatMessage({
+  agent_id: process.env.SIMPLEFLOW_AGENT_ID,
+  chat_id: "chat_123",
+  user_id: "user_123",
+  message_id: "m_123",
+  role: "user",
+  content: { text: "hello" },
+  telemetry_data: { source: "web" },
+}, { authToken: process.env.SIMPLEFLOW_USER_BEARER })
 
-const messages = await client.listChatHistoryMessages({
+const messages = await client.listChatMessages({
   agentId: process.env.SIMPLEFLOW_AGENT_ID,
   chatId: "chat_123",
   userId: "user_123",
+  authToken: process.env.SIMPLEFLOW_USER_BEARER,
+})
+
+await client.updateChatSession({
+  chatId: "chat_123",
+  agentId: process.env.SIMPLEFLOW_AGENT_ID,
+  userId: "user_123",
+  status: "active",
   authToken: process.env.SIMPLEFLOW_USER_BEARER,
 })
 ```
