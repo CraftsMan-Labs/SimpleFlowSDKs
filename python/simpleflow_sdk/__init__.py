@@ -12,10 +12,13 @@ from .contracts import (
     ChatMessageWrite,
 )
 from .response_models import (
+    AuthTokenResponse,
     ChatMessage,
     ChatMessagesResponse,
     ChatSession,
     ChatSessionsResponse,
+    MessageOutputResponse,
+    PrincipalResponse,
 )
 
 __all__ = [
@@ -32,4 +35,7 @@ __all__ = [
     "ChatMessage",
     "ChatSessionsResponse",
     "ChatMessagesResponse",
+    "AuthTokenResponse",
+    "PrincipalResponse",
+    "MessageOutputResponse",
 ]

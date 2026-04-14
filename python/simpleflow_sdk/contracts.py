@@ -11,6 +11,7 @@ class ChatMessageWrite:
     role: str
     content: Any = None
     telemetry_data: dict[str, Any] | None = None
+    output_data: dict[str, Any] | None = None
     idempotency_key: str | None = None
 
 

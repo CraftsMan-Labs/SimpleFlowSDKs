@@ -30,3 +30,22 @@ class ChatSessionsResponse(TypedDict, total=False):
 
 class ChatMessagesResponse(TypedDict, total=False):
     messages: list[ChatMessage]
+
+
+class AuthTokenResponse(TypedDict, total=False):
+    access_token: str
+    token_type: str
+    expires_at: str
+    user: dict[str, object]
+
+
+class PrincipalResponse(TypedDict, total=False):
+    user_id: str
+    organization_id: str
+    role: str
+    roles: list[str]
+    provider: str
+
+
+class MessageOutputResponse(TypedDict, total=False):
+    output: dict[str, object]

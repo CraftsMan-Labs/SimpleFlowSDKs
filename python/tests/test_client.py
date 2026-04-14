@@ -65,6 +65,35 @@ class _FakeHTTPClient:
         if status is not None:
             return _FakeResponse(status_code=status, text="denied")
 
+        if url.endswith("/v1/auth/sessions") and method == "POST":
+            return _FakeResponse(
+                payload={
+                    "access_token": "issued_token",
+                    "token_type": "Bearer",
+                    "expires_at": "2026-01-01T00:00:00Z",
+                    "user": {
+                        "id": "u_me",
+                        "organization_id": "org",
+                        "email": "person@example.com",
+                        "full_name": "Person",
+                    },
+                }
+            )
+        if url.endswith("/v1/auth/sessions/refresh") and method == "POST":
+            return _FakeResponse(
+                payload={
+                    "access_token": "refreshed_token",
+                    "token_type": "Bearer",
+                    "expires_at": "2026-01-01T01:00:00Z",
+                    "user": {
+                        "id": "u_me",
+                        "organization_id": "org",
+                        "email": "person@example.com",
+                        "full_name": "Person",
+                    },
+                }
+            )
+
         if "/v1/chat/sessions" in url and method == "GET" and "chat_id=" not in url:
             return _FakeResponse(
                 payload={
@@ -91,12 +120,22 @@ class _FakeHTTPClient:
             )
         if method == "PATCH" and "/v1/chat/sessions/" in url:
             return _FakeResponse(payload={"chat_id": "chat_1", "status": "archived"})
+        if method == "GET" and "/v1/chat/messages/" in url and "/output" in url:
+            return _FakeResponse(payload={"output": {"workflow_id": "wf_1"}})
+        if method == "POST" and "/v1/chat/messages/" in url and "/output" in url:
+            return _FakeResponse(
+                payload={
+                    "message_id": "m1",
+                    "chat_id": "chat_1",
+                    "output_data": {"workflow_id": "wf_1"},
+                }
+            )
         if url.endswith("/v1/me"):
             return _FakeResponse(
                 payload={
                     "user_id": "u_me",
                     "organization_id": "org",
-                    "roles": ["member"],
+                    "role": "member",
                 }
             )
         if "/api/v1/agents/" in url:
@@ -214,6 +253,144 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertIn("telemetry_data", post_payload)
         self.assertNotIn("metadata", post_payload)
 
+    def test_write_chat_message_rejects_unknown_top_level_keys(self) -> None:
+        import asyncio
+
+        client, _fake_http = self._new_client()
+        with self.assertRaisesRegex(ValueError, "unknown keys"):
+            asyncio.run(
+                client.write_chat_message(
+                    {
+                        "agent_id": "agent_1",
+                        "user_id": "user_1",
+                        "chat_id": "chat_1",
+                        "message_id": "m1",
+                        "role": "assistant",
+                        "content": {"text": "hi"},
+                        "telemetry_data": {"source": "web"},
+                        "unexpected": True,
+                    },
+                    auth_token="jwt",
+                )
+            )
+
+    def test_write_chat_message_rejects_output_data_for_non_assistant(self) -> None:
+        import asyncio
+
+        client, _fake_http = self._new_client()
+        with self.assertRaisesRegex(ValueError, "only allowed when role is assistant"):
+            asyncio.run(
+                client.write_chat_message(
+                    {
+                        "agent_id": "agent_1",
+                        "user_id": "user_1",
+                        "chat_id": "chat_1",
+                        "message_id": "m1",
+                        "role": "user",
+                        "content": {"text": "hi"},
+                        "telemetry_data": {"source": "web"},
+                        "output_data": {"workflow_id": "wf_1"},
+                    },
+                    auth_token="jwt",
+                )
+            )
+
+    def test_create_auth_session_sets_default_token(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        out = asyncio.run(
+            client.create_auth_session(
+                email="person@example.com",
+                password="secret",
+            )
+        )
+        self.assertEqual(out.get("access_token"), "issued_token")
+        self.assertEqual(client._api_token, "issued_token")
+        method, url, payload, _headers = fake_http.calls[-1]
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/v1/auth/sessions"))
+        self.assertEqual((payload or {}).get("email"), "person@example.com")
+
+    def test_refresh_auth_session_uses_csrf_header(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        out = asyncio.run(client.refresh_auth_session(csrf_token="csrf_token"))
+        self.assertEqual(out.get("access_token"), "refreshed_token")
+        self.assertEqual(client._api_token, "refreshed_token")
+        method, url, _payload, headers = fake_http.calls[-1]
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/v1/auth/sessions/refresh"))
+        self.assertEqual(headers.get("X-CSRF-Token"), "csrf_token")
+
+    def test_validate_access_token_uses_me_endpoint(self) -> None:
+        import asyncio
+
+        client, _fake_http = self._new_client()
+        client._api_token = "issued_token"
+        out = asyncio.run(client.validate_access_token())
+        self.assertEqual(out.get("user_id"), "u_me")
+
+    def test_build_chat_message_from_simple_agents_result(self) -> None:
+        client, _fake_http = self._new_client()
+        message = client.build_chat_message_from_simple_agents_result(
+            agent_id="agent_1",
+            user_id="user_1",
+            chat_id="chat_1",
+            message_id="m_assistant",
+            workflow_result={
+                "workflow_id": "wf_invoice",
+                "terminal_output": {
+                    "label": "finance/invoice",
+                    "reason": "looks like invoice",
+                    "extra": "dropped",
+                },
+                "total_input_tokens": 10,
+                "total_output_tokens": 5,
+                "total_tokens": 15,
+                "total_elapsed_ms": 25,
+                "outputs": {
+                    "node_1": {
+                        "output": {
+                            "label": "finance/invoice",
+                            "reason": "ok",
+                            "unknown": "drop",
+                        }
+                    }
+                },
+                "events": [{"ignored": True}],
+            },
+        )
+        self.assertEqual(message["role"], "assistant")
+        self.assertEqual(message["output_data"]["workflow_id"], "wf_invoice")
+        self.assertNotIn("events", message["output_data"])
+
+    def test_write_chat_message_from_simple_agents_result_posts_assistant_message(
+        self,
+    ) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        asyncio.run(
+            client.write_chat_message_from_simple_agents_result(
+                agent_id="agent_1",
+                user_id="user_1",
+                chat_id="chat_1",
+                message_id="m_assistant",
+                workflow_result={
+                    "terminal_output": "done",
+                    "workflow_id": "wf_1",
+                },
+                auth_token="jwt",
+            )
+        )
+        method, url, payload, _headers = fake_http.calls[-1]
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/v1/chat/sessions"))
+        self.assertEqual((payload or {}).get("role"), "assistant")
+        self.assertIn("output_data", payload or {})
+
     def test_update_chat_session_calls_patch(self) -> None:
         import asyncio
 
@@ -234,6 +411,44 @@ class SimpleFlowClientTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         patch_payload = payload or {}
         self.assertEqual(patch_payload.get("status"), "archived")
+
+    def test_get_chat_message_output(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        out = asyncio.run(
+            client.get_chat_message_output(
+                message_id="m1",
+                agent_id="agent_1",
+                chat_id="chat_1",
+                user_id="user_1",
+                auth_token="jwt",
+            )
+        )
+        self.assertEqual(out.get("output", {}).get("workflow_id"), "wf_1")
+        method, url, _payload, _headers = fake_http.calls[-1]
+        self.assertEqual(method, "GET")
+        self.assertIn("/v1/chat/messages/m1/output", url)
+
+    def test_upsert_chat_message_output(self) -> None:
+        import asyncio
+
+        client, fake_http = self._new_client()
+        out = asyncio.run(
+            client.upsert_chat_message_output(
+                message_id="m1",
+                agent_id="agent_1",
+                chat_id="chat_1",
+                user_id="user_1",
+                output_data={"workflow_id": "wf_1", "events": ["drop"]},
+                auth_token="jwt",
+            )
+        )
+        self.assertEqual(out.get("chat_id"), "chat_1")
+        method, url, payload, _headers = fake_http.calls[-1]
+        self.assertEqual(method, "POST")
+        self.assertIn("/v1/chat/messages/m1/output", url)
+        self.assertNotIn("events", (payload or {}).get("output_data", {}))
 
     def test_list_chat_sessions_raises_auth_error(self) -> None:
         import asyncio
