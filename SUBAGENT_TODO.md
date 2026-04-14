@@ -60,3 +60,33 @@
 
 6. Verification workstream (completed)
    - Run Python + Node tests and resolve any failures.
+
+## Mapping to TODO.md (latest)
+
+- Parent task: `Add runnable Python reference script for SimpleAgents -> SDK chat ingestion`
+- Ownership: OpenCode primary agent
+- Status: completed
+
+1. Example implementation workstream (completed)
+   - Add runnable Python script to authenticate, write user + assistant messages, and verify message output.
+
+2. Fixture and docs workstream (completed)
+   - Add sample workflow result fixture and usage README for local execution.
+
+3. Execution validation workstream (completed)
+   - Execute script against localhost and capture auth response behavior.
+
+## Mapping to TODO.md (latest)
+
+- Parent task: `Add runnable Node/TS reference scripts for SimpleAgents -> SDK chat ingestion`
+- Ownership: OpenCode primary agent
+- Status: completed
+
+1. Node example implementation workstream (completed)
+   - Add runnable JavaScript script using SDK auth/session/chat helpers and SimpleAgents result ingestion.
+
+2. TypeScript reference workstream (completed)
+   - Add typed TypeScript variant mirroring JS flow and SDK method usage.
+
+3. Validation workstream (completed)
+   - Execute Node script against localhost with provided credentials and verify chat/session/output persistence.

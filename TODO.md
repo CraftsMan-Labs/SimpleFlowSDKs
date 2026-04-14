@@ -105,3 +105,43 @@
 
 8. Status: completed
    - Run Python and Node SDK test suites and fix regressions.
+
+## Parent Task: Add runnable Python reference script for SimpleAgents -> SDK chat ingestion
+
+- Status: completed
+- Why: Provide a concrete local script that logs in via control-plane auth session, ingests workflow result data, and writes/reads chat output through SDK helpers.
+- Decision: keep script minimal with JSON fallback mode by default and optional live typed `WorkflowExecutionRequest` mode for `simple-agents-py` users.
+
+### Subtasks
+
+1. Status: completed
+   - Add `examples/python-simpleagents-chat/seed_chat_from_simpleagents.py` with local auth-session login, chat writes, and output verification.
+
+2. Status: completed
+   - Add `examples/python-simpleagents-chat/sample_workflow_result.json` fixture matching strict assistant `output_data` shape.
+
+3. Status: completed
+   - Add `examples/python-simpleagents-chat/README.md` with run instructions for fallback JSON and live typed workflow execution.
+
+4. Status: completed
+   - Run the script against `http://localhost:8080` and capture result.
+
+## Parent Task: Add runnable Node/TS reference scripts for SimpleAgents -> SDK chat ingestion
+
+- Status: completed
+- Why: Provide JavaScript and TypeScript reference implementations mirroring the Python workflow-to-chat ingestion example.
+- Decision: add a runnable Node script plus a typed TypeScript reference with the same token-auth and chat-output verification flow.
+
+### Subtasks
+
+1. Status: completed
+   - Add `examples/node-simpleagents-chat/seed_chat_from_simpleagents.js` runnable script with login, message writes, and output verification.
+
+2. Status: completed
+   - Add `examples/node-simpleagents-chat/seed_chat_from_simpleagents.ts` typed reference script aligned with Node SDK declarations.
+
+3. Status: completed
+   - Add `examples/node-simpleagents-chat/sample_workflow_result.json` and README usage instructions.
+
+4. Status: completed
+   - Execute Node script against `http://localhost:8080` and verify inserted chat/session/output records.
