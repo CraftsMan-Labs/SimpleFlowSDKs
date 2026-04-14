@@ -32,3 +32,31 @@
 - All SDKs extract nerdstats from the same source precedence.
 - Canonical payload carries nullable usage when unavailable plus explicit availability/source metadata.
 - Tests pass in Node/Python/Go with parity on control-plane-facing telemetry payloads.
+
+## Mapping to TODO.md (current)
+
+- Parent task: `Align SDK auth + strict chat schema with control-plane chat updates`
+- Ownership: OpenCode primary agent
+- Status: completed
+
+## Current workstreams
+
+1. Auth helpers workstream (completed)
+   - Python: add auth session create/refresh/token validation methods.
+   - Node: add auth session create/refresh/token validation methods.
+
+2. Strict chat schema workstream (completed)
+   - Add `output_data` support to chat writes.
+   - Enforce role constraints and reject unknown top-level payload keys.
+
+3. SimpleAgents ingestion workstream (completed)
+   - Add Python/Node helper methods to map workflow result objects into strict assistant chat payloads.
+
+4. Message output API workstream (completed)
+   - Add Python/Node wrappers to read and upsert per-message output payloads.
+
+5. TypeScript DX workstream (completed)
+   - Add Node `index.d.ts` declarations and package `types` entry for typed usage of new helpers.
+
+6. Verification workstream (completed)
+   - Run Python + Node tests and resolve any failures.

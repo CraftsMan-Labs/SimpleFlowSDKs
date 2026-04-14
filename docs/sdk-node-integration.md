@@ -70,29 +70,55 @@ const data = await response.json()
 ## Chat sessions (SDK)
 
 ```js
+const session = await client.createAuthSession({
+  email: process.env.SIMPLEFLOW_USER_EMAIL,
+  password: process.env.SIMPLEFLOW_USER_PASSWORD,
+})
+const userToken = session.access_token
+const principal = await client.validateAccessToken({ authToken: userToken })
+
 await client.writeChatMessage({
   agent_id: process.env.SIMPLEFLOW_AGENT_ID,
   chat_id: "chat_123",
-  user_id: "user_123",
+  user_id: principal.user_id,
   message_id: "m_123",
   role: "user",
   content: { text: "hello" },
   telemetry_data: { source: "web" },
-}, { authToken: process.env.SIMPLEFLOW_USER_BEARER })
+}, { authToken: userToken })
 
 const messages = await client.listChatMessages({
   agentId: process.env.SIMPLEFLOW_AGENT_ID,
   chatId: "chat_123",
-  userId: "user_123",
-  authToken: process.env.SIMPLEFLOW_USER_BEARER,
+  userId: principal.user_id,
+  authToken: userToken,
 })
 
 await client.updateChatSession({
   chatId: "chat_123",
   agentId: process.env.SIMPLEFLOW_AGENT_ID,
-  userId: "user_123",
+  userId: principal.user_id,
   status: "active",
-  authToken: process.env.SIMPLEFLOW_USER_BEARER,
+  authToken: userToken,
+})
+
+await client.refreshAuthSession()
+
+await client.writeChatMessageFromSimpleAgentsResult({
+  agentId: process.env.SIMPLEFLOW_AGENT_ID,
+  userId: principal.user_id,
+  chatId: "chat_123",
+  messageId: "m_assistant_123",
+  workflowResult,
+  authToken: userToken,
+})
+
+const output = await client.getChatMessageOutput({
+  messageId: "m_assistant_123",
+  agentId: process.env.SIMPLEFLOW_AGENT_ID,
+  chatId: "chat_123",
+  userId: principal.user_id,
+  authToken: userToken,
 })
 ```
 

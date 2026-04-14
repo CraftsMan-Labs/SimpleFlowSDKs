@@ -77,32 +77,58 @@ data = resp.json()
 ## Chat sessions (SDK)
 
 ```python
+session = await client.create_auth_session(
+    email=os.environ["SIMPLEFLOW_USER_EMAIL"],
+    password=os.environ["SIMPLEFLOW_USER_PASSWORD"],
+)
+user_token = session["access_token"]
+principal = await client.validate_access_token(auth_token=user_token)
+
 await client.write_chat_message(
     {
         "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
         "chat_id": "chat_123",
-        "user_id": "user_123",
+        "user_id": principal["user_id"],
         "message_id": "m_123",
         "role": "user",
         "content": {"text": "hello"},
         "telemetry_data": {"source": "web"},
     },
-    auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
+    auth_token=user_token,
 )
 
 messages = await client.list_chat_messages(
     agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
     chat_id="chat_123",
-    user_id="user_123",
-    auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
+    user_id=principal["user_id"],
+    auth_token=user_token,
 )
 
 await client.update_chat_session(
     chat_id="chat_123",
     agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
-    user_id="user_123",
+    user_id=principal["user_id"],
     status="active",
-    auth_token=os.environ["SIMPLEFLOW_USER_BEARER"],
+    auth_token=user_token,
+)
+
+await client.refresh_auth_session()
+
+await client.write_chat_message_from_simple_agents_result(
+    agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
+    user_id=principal["user_id"],
+    chat_id="chat_123",
+    message_id="m_assistant_123",
+    workflow_result=workflow_result,
+    auth_token=user_token,
+)
+
+output = await client.get_chat_message_output(
+    message_id="m_assistant_123",
+    agent_id=os.environ["SIMPLEFLOW_AGENT_ID"],
+    chat_id="chat_123",
+    user_id=principal["user_id"],
+    auth_token=user_token,
 )
 ```
 

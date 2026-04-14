@@ -73,3 +73,35 @@
 
 4. Status: completed
    - Add guides to VitePress sidebar and cross-link from SDK overview pages.
+
+## Parent Task: Align SDK auth + strict chat schema with control-plane chat updates
+
+- Status: completed
+- Why: Chat write schema is now strict (including assistant `output_data`) and user auth must rely on control-plane session tokens instead of local JWT issuance.
+- Decision: add first-class auth session helpers (`create`, `refresh`, `validate`) and SimpleAgents-result chat helpers across Python/Node while keeping APIs minimal.
+
+### Subtasks
+
+1. Status: completed
+   - Add Python auth session helpers for `POST /v1/auth/sessions`, `POST /v1/auth/sessions/refresh`, and `/v1/me` validation.
+
+2. Status: completed
+   - Add Node auth session helpers for `POST /v1/auth/sessions`, `POST /v1/auth/sessions/refresh`, and `/v1/me` validation.
+
+3. Status: completed
+   - Update chat write payload validation in Python/Node to allow `output_data`, enforce role constraints, and reject unknown top-level keys.
+
+4. Status: completed
+   - Add Python and Node helpers to derive assistant chat writes from SimpleAgents workflow `res` object.
+
+5. Status: completed
+   - Add Python and Node message-output endpoint wrappers (`get`/`upsert`) for `/v1/chat/messages/{message_id}/output`.
+
+6. Status: completed
+   - Add Node TypeScript declarations (`index.d.ts`) and package metadata for typed DX of new auth/chat helpers.
+
+7. Status: completed
+   - Update SDK docs and examples for login/refresh flow and `res`-based assistant message ingestion.
+
+8. Status: completed
+   - Run Python and Node SDK test suites and fix regressions.

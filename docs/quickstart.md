@@ -65,6 +65,7 @@ Recommended for telemetry + chat identity:
 - `SIMPLEFLOW_RUNTIME_ID`
 - `RUNTIME_ENDPOINT_URL`
 - `SIMPLEFLOW_USER_BEARER` (only for user-scoped chat history APIs)
+- or `SIMPLEFLOW_USER_EMAIL` + `SIMPLEFLOW_USER_PASSWORD` for control-plane session login
 
 Copy/paste:
 
@@ -76,6 +77,8 @@ export SIMPLEFLOW_USER_ID="user_local_demo"
 export SIMPLEFLOW_RUNTIME_ID="runtime_local_hr_agent"
 export RUNTIME_ENDPOINT_URL="http://localhost:8092"
 export SIMPLEFLOW_USER_BEARER="<user_bearer_token>"
+export SIMPLEFLOW_USER_EMAIL="user@example.com"
+export SIMPLEFLOW_USER_PASSWORD="secret"
 ```
 
 ## 4) JavaScript (Node): telemetry + chat + history
@@ -91,6 +94,15 @@ const client = new SimpleFlowClient({
   oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
 })
 
+let userToken = process.env.SIMPLEFLOW_USER_BEARER || ""
+if (!userToken && process.env.SIMPLEFLOW_USER_EMAIL && process.env.SIMPLEFLOW_USER_PASSWORD) {
+  const session = await client.createAuthSession({
+    email: process.env.SIMPLEFLOW_USER_EMAIL,
+    password: process.env.SIMPLEFLOW_USER_PASSWORD,
+  })
+  userToken = session.access_token
+}
+
 const messageId = `m_${crypto.randomUUID().slice(0, 8)}`
 
 await client.writeChatMessage({
@@ -101,13 +113,13 @@ await client.writeChatMessage({
   role: "assistant",
   content: { text: "Hello from JS SDK" },
   telemetry_data: { source: "quickstart-js" },
-})
+}, { authToken: userToken })
 
 const messages = await client.listChatMessages({
   agentId: process.env.SIMPLEFLOW_AGENT_ID,
   chatId: "chat_local_demo",
   userId: process.env.SIMPLEFLOW_USER_ID,
-  authToken: process.env.SIMPLEFLOW_USER_BEARER,
+  authToken: userToken,
 })
 
 console.log("history_count", messages.length)
@@ -125,14 +137,36 @@ const client = new SimpleFlowClient({
   oauthClientSecret: process.env.MACHINE_CLIENT_SECRET,
 })
 
+const session = await client.createAuthSession({
+  email: process.env.SIMPLEFLOW_USER_EMAIL!,
+  password: process.env.SIMPLEFLOW_USER_PASSWORD!,
+})
+const userToken = session.access_token
+
+const principal = await client.validateAccessToken({ authToken: userToken })
+
 await client.writeChatMessage({
   agent_id: process.env.SIMPLEFLOW_AGENT_ID!,
-  user_id: process.env.SIMPLEFLOW_USER_ID!,
+  user_id: principal.user_id,
   chat_id: "chat_ts_demo",
   message_id: "m_ts_demo",
   role: "assistant",
   content: { text: "Hello from TS SDK" },
   telemetry_data: { source: "quickstart-ts" },
+}, { authToken: userToken })
+
+const res = {
+  workflow_id: "wf_demo",
+  terminal_output: { label: "finance/invoice", reason: "demo" },
+}
+
+await client.writeChatMessageFromSimpleAgentsResult({
+  agentId: process.env.SIMPLEFLOW_AGENT_ID!,
+  userId: principal.user_id,
+  chatId: "chat_ts_demo",
+  messageId: "m_ts_assistant",
+  workflowResult: res,
+  authToken: userToken,
 })
 ```
 
@@ -149,6 +183,14 @@ client = SimpleFlowClient(
     oauth_client_secret=os.getenv("MACHINE_CLIENT_SECRET"),
 )
 
+user_token = os.getenv("SIMPLEFLOW_USER_BEARER", "")
+if not user_token and os.getenv("SIMPLEFLOW_USER_EMAIL") and os.getenv("SIMPLEFLOW_USER_PASSWORD"):
+    session = await client.create_auth_session(
+        email=os.environ["SIMPLEFLOW_USER_EMAIL"],
+        password=os.environ["SIMPLEFLOW_USER_PASSWORD"],
+    )
+    user_token = session["access_token"]
+
 await client.write_chat_message(
     {
         "agent_id": os.environ["SIMPLEFLOW_AGENT_ID"],
@@ -158,7 +200,8 @@ await client.write_chat_message(
         "role": "assistant",
         "content": {"text": "Hello from Python SDK"},
         "telemetry_data": {"source": "quickstart-python"},
-    }
+    },
+    auth_token=user_token,
 )
 ```
 
