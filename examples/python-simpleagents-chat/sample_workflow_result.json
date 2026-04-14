@@ -1,0 +1,86 @@
+{
+  "workflow_id": "email-hierarchical-classification-with-finance-enrichment",
+  "entry_node": "detect_email_domain",
+  "terminal_node": "finalize_invoice_classification",
+  "trace_id": "000000000000000018a635f05dfd7dac",
+  "trace": [
+    "detect_email_domain",
+    "route_email_domain",
+    "detect_finance_subtype",
+    "route_finance_subtype",
+    "extract_invoice_company_name",
+    "lookup_invoice_stakeholder",
+    "finalize_invoice_classification"
+  ],
+  "llm_node_models": {
+    "detect_email_domain": "azure/gpt-4.1-mini",
+    "detect_finance_subtype": "azure/gpt-4.1-mini",
+    "extract_invoice_company_name": "azure/gpt-4.1-mini",
+    "finalize_invoice_classification": "azure/gpt-4.1-mini"
+  },
+  "llm_node_metrics": {
+    "detect_email_domain": {
+      "completion_tokens": 39,
+      "elapsed_ms": 4900,
+      "prompt_tokens": 1120,
+      "reasoning_tokens": 0,
+      "tokens_per_second": 7.96,
+      "total_tokens": 1159
+    },
+    "finalize_invoice_classification": {
+      "completion_tokens": 208,
+      "elapsed_ms": 5592,
+      "prompt_tokens": 1149,
+      "reasoning_tokens": 0,
+      "tokens_per_second": 37.2,
+      "total_tokens": 1357
+    }
+  },
+  "outputs": {
+    "detect_email_domain": {
+      "output": {
+        "domain": "finance",
+        "reason": "The content is an invoice detailing payment terms and amounts due."
+      }
+    },
+    "finalize_invoice_classification": {
+      "output": {
+        "company_name": "Google",
+        "label": "finance/invoice",
+        "reason": "Document contains invoice payment terms and itemized bill.",
+        "stakeholder_name": "Sundar Pichai",
+        "subtype": "invoice",
+        "top_level_category": "finance"
+      }
+    }
+  },
+  "metadata": {
+    "telemetry": {
+      "enabled": true,
+      "multi_tenant": true,
+      "nerdstats": true,
+      "payload_mode": "full_payload",
+      "retention_days": 30,
+      "sample_rate": 1.0,
+      "sampled": true,
+      "tool_trace_mode": "full",
+      "trace_id": "000000000000000018a635f05dfd7dac",
+      "trace_id_source": "generated"
+    }
+  },
+  "terminal_output": {
+    "company_name": "Google",
+    "label": "finance/invoice",
+    "reason": "Document appears to be a finance invoice.",
+    "stakeholder_name": "Sundar Pichai",
+    "subtype": "invoice",
+    "top_level_category": "finance"
+  },
+  "total_elapsed_ms": 16541,
+  "total_input_tokens": 4511,
+  "total_output_tokens": 314,
+  "total_reasoning_tokens": 0,
+  "total_tokens": 4825,
+  "tokens_per_second": 18.98,
+  "ttft_ms": 4670
+}

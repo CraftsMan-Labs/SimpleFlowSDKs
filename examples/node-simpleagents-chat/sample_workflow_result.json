@@ -1,0 +1,54 @@
+{
+  "workflow_id": "email-hierarchical-classification-with-finance-enrichment",
+  "entry_node": "detect_email_domain",
+  "terminal_node": "finalize_invoice_classification",
+  "trace_id": "000000000000000018a635f05dfd7dac",
+  "trace": [
+    "detect_email_domain",
+    "route_email_domain",
+    "detect_finance_subtype",
+    "route_finance_subtype",
+    "extract_invoice_company_name",
+    "lookup_invoice_stakeholder",
+    "finalize_invoice_classification"
+  ],
+  "llm_node_models": {
+    "detect_email_domain": "azure/gpt-4.1-mini",
+    "detect_finance_subtype": "azure/gpt-4.1-mini",
+    "extract_invoice_company_name": "azure/gpt-4.1-mini",
+    "finalize_invoice_classification": "azure/gpt-4.1-mini"
+  },
+  "outputs": {
+    "detect_email_domain": {
+      "output": {
+        "domain": "finance",
+        "reason": "The message has invoice content and payment instructions."
+      }
+    },
+    "finalize_invoice_classification": {
+      "output": {
+        "company_name": "Google",
+        "label": "finance/invoice",
+        "reason": "The document is clearly an invoice.",
+        "stakeholder_name": "Sundar Pichai",
+        "subtype": "invoice",
+        "top_level_category": "finance"
+      }
+    }
+  },
+  "terminal_output": {
+    "company_name": "Google",
+    "label": "finance/invoice",
+    "reason": "Classified as invoice.",
+    "stakeholder_name": "Sundar Pichai",
+    "subtype": "invoice",
+    "top_level_category": "finance"
+  },
+  "total_elapsed_ms": 16541,
+  "total_input_tokens": 4511,
+  "total_output_tokens": 314,
+  "total_reasoning_tokens": 0,
+  "total_tokens": 4825,
+  "tokens_per_second": 18.98,
+  "ttft_ms": 4670
+}
