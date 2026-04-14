@@ -1,6 +1,6 @@
 {
   "name": "simpleflow-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SimpleFlow Node SDK (Remote Runtime)",
   "main": "index.js",
   "types": "index.d.ts",
